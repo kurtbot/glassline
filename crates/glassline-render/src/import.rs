@@ -89,10 +89,7 @@ impl ImportError {
     pub const fn exit_code(&self) -> u8 {
         match self {
             Self::NoSource(_) => 1,
-            Self::ReadSource { .. }
-            | Self::ParseSource(_)
-            | Self::Migrate(_)
-            | Self::Shape(_) => 2,
+            Self::ReadSource { .. } | Self::ParseSource(_) | Self::Migrate(_) | Self::Shape(_) => 2,
             Self::TargetExists(_) => 3,
             Self::Lock { .. } | Self::WriteTarget { .. } => 4,
             // `Declined` and `ResolveTarget` are grouped under exit 2 as
@@ -214,12 +211,18 @@ pub fn render_report(report: &ImportReport, opts: &ImportOpts) -> String {
         "glassline import v{}\n\n",
         env!("CARGO_PKG_VERSION")
     ));
-    out.push_str(&format!("  source:            {}\n", report.source.display()));
+    out.push_str(&format!(
+        "  source:            {}\n",
+        report.source.display()
+    ));
     out.push_str(&format!(
         "  source schema:     v{}\n",
         report.source_version
     ));
-    out.push_str(&format!("  target:            {}\n", report.target.display()));
+    out.push_str(&format!(
+        "  target:            {}\n",
+        report.target.display()
+    ));
     out.push_str(&format!(
         "  target schema:     v{} ({})\n",
         report.target_version,
@@ -258,7 +261,9 @@ pub fn render_report(report: &ImportReport, opts: &ImportOpts) -> String {
         out.push('\n');
     } else {
         out.push_str("next steps:\n");
-        out.push_str("  1. glassline install     # wire the statusLine hook (if not already done)\n");
+        out.push_str(
+            "  1. glassline install     # wire the statusLine hook (if not already done)\n",
+        );
         out.push_str("  2. Original ccstatusline file untouched; delete the new glassline\n");
         out.push_str("     settings.json to revert.\n");
     }
@@ -456,7 +461,11 @@ mod tests {
     fn import_overwrites_with_force_and_yes() {
         let dir = temp_dir_with("import-force");
         let source = dir.path().join("src.json");
-        std::fs::write(&source, r#"{"version":1,"lines":[[{"id":"1","type":"custom-text","customText":"hi"}]]}"#).unwrap();
+        std::fs::write(
+            &source,
+            r#"{"version":1,"lines":[[{"id":"1","type":"custom-text","customText":"hi"}]]}"#,
+        )
+        .unwrap();
         let target = dir.path().join("dst.json");
         std::fs::write(&target, r#"{"lines":[]}"#).unwrap();
 

@@ -238,10 +238,7 @@ mod tests {
             "gray",
             "grey",
         ] {
-            assert!(
-                named_to_rgb(name).is_some(),
-                "expected {name} to resolve"
-            );
+            assert!(named_to_rgb(name).is_some(), "expected {name} to resolve");
         }
     }
 
