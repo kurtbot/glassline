@@ -26,12 +26,32 @@ pub struct GitChangeCounts {
 }
 
 /// Flags parsed from `git status --porcelain -z`.
+///
+/// The bool flags (`staged`, `unstaged`, ...) answer "are there ANY entries
+/// with this state?" — used by `git-status` and the per-flag glyph widgets.
+/// The `*_files` counts answer "how many?" — used by the `-files` variants
+/// (`git-staged-files`, etc.). Counting matches `GitStaged.ts` etc.
+///
+/// `conflicts` intentionally has no per-flag file count — upstream
+/// ccstatusline exposes no `GitConflictsFiles.ts`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GitStatus {
     pub staged: bool,
     pub unstaged: bool,
     pub untracked: bool,
     pub conflicts: bool,
+    pub staged_files: u32,
+    pub unstaged_files: u32,
+    pub untracked_files: u32,
+}
+
+impl GitStatus {
+    /// `true` iff no dirty state — no staged, unstaged, untracked, or
+    /// conflicted entries. Used by `git-clean-status`.
+    #[must_use]
+    pub fn is_clean(&self) -> bool {
+        !self.staged && !self.unstaged && !self.untracked && !self.conflicts
+    }
 }
 
 /// Resolve the directory for a git shell-out.
@@ -186,7 +206,12 @@ fn extract_number(stat: &str, keyword: &str) -> u32 {
     stat[start..end].parse().unwrap_or(0)
 }
 
-/// `git status --porcelain -z` -> flags.
+/// `git status --porcelain -z` -> flags + per-flag file counts.
+///
+/// Loops the whole output (no early break) because tier-D widgets need the
+/// counts, not just the booleans. Conflict entries also flip `staged` and
+/// `unstaged` bools when their two-char codes fall in the staged/unstaged
+/// character sets — pre-existing behavior matching TS.
 #[must_use]
 pub fn get_git_status(ctx: &RenderContext) -> GitStatus {
     let Some(output) = run_git(&["status", "--porcelain", "-z"], ctx) else {
@@ -206,31 +231,29 @@ pub fn get_git_status(ctx: &RenderContext) -> GitStatus {
         let y = bytes[1] as char;
 
         // Conflict markers: DD/AU/UD/UA/DU/AA/UU.
-        if !status.conflicts
-            && matches!(
-                (x, y),
-                ('D', 'D')
-                    | ('A', 'U')
-                    | ('U', 'D')
-                    | ('U', 'A')
-                    | ('D', 'U')
-                    | ('A', 'A')
-                    | ('U', 'U')
-            )
-        {
+        if matches!(
+            (x, y),
+            ('D', 'D')
+                | ('A', 'U')
+                | ('U', 'D')
+                | ('U', 'A')
+                | ('D', 'U')
+                | ('A', 'A')
+                | ('U', 'U')
+        ) {
             status.conflicts = true;
         }
-        if !status.staged && matches!(x, 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | 'U') {
+        if matches!(x, 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | 'U') {
             status.staged = true;
+            status.staged_files = status.staged_files.saturating_add(1);
         }
-        if !status.unstaged && matches!(y, 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | 'U') {
+        if matches!(y, 'M' | 'A' | 'D' | 'R' | 'C' | 'T' | 'U') {
             status.unstaged = true;
+            status.unstaged_files = status.unstaged_files.saturating_add(1);
         }
-        if !status.untracked && x == '?' && y == '?' {
+        if x == '?' && y == '?' {
             status.untracked = true;
-        }
-        if status.staged && status.unstaged && status.untracked && status.conflicts {
-            break;
+            status.untracked_files = status.untracked_files.saturating_add(1);
         }
         // Renames/copies have a second entry (old path) that we skip.
         if x == 'R' || x == 'C' || y == 'R' || y == 'C' {
