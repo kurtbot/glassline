@@ -171,10 +171,10 @@ impl Screen for DemoScreen {
     fn on_event(&mut self, ev: Event) -> Action {
         // Modal has focus while open — Esc / Enter dismisses.
         if self.show_modal {
-            if let Event::Key(k) = ev {
-                if matches!(k.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q')) {
-                    self.show_modal = false;
-                }
+            if let Event::Key(k) = ev
+                && matches!(k.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q'))
+            {
+                self.show_modal = false;
             }
             return Action::None;
         }
