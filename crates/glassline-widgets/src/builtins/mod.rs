@@ -13,6 +13,8 @@ pub mod context_length;
 pub mod context_percentage;
 pub mod context_percentage_usable;
 pub mod context_window;
+pub mod custom_command;
+pub mod custom_symbol;
 pub mod custom_text;
 pub mod cwd;
 pub mod extra_usage_remaining;

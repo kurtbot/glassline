@@ -280,6 +280,7 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "time",
+ "wait-timeout",
 ]
 
 [[package]]
