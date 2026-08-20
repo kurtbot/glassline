@@ -66,6 +66,7 @@ pub mod jj_workspace;
 pub mod link;
 pub mod model;
 pub mod output_style;
+pub mod remote_control_status;
 pub mod separator;
 pub mod session_clock;
 pub mod session_cost;

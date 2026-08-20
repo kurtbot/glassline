@@ -172,6 +172,45 @@ pub fn read_layered_bool(cwd: &Path, keys: &[&str]) -> Option<LayeredBool> {
     }
 }
 
+/// Read `remoteControl.enabled` for a specific session id from
+/// `$CLAUDE_CONFIG_DIR/sessions/*.json` (or `~/.claude/sessions/*.json`).
+///
+/// Upstream (`getRemoteControlStatus` in claude-settings.ts) iterates the
+/// entire sessions directory looking for a JSON file whose top-level
+/// `sessionId` matches the current session. That's the same shape we
+/// mirror here — the filename isn't guaranteed to be `<session>.json`,
+/// so we have to inspect the contents.
+///
+/// Returns `None` when the sessions dir is missing, no file matches, or
+/// the matched file doesn't set `remoteControl.enabled` to a boolean.
+#[must_use]
+pub fn read_remote_control_status(session_id: &str) -> Option<bool> {
+    if session_id.is_empty() {
+        return None;
+    }
+    let sessions_dir = claude_user_dir()?.join("sessions");
+    let entries = std::fs::read_dir(&sessions_dir).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        if v.get("sessionId").and_then(Value::as_str) == Some(session_id) {
+            return v
+                .get("remoteControl")
+                .and_then(|rc| rc.get("enabled"))
+                .and_then(Value::as_bool);
+        }
+    }
+    None
+}
+
 /// Outcome of a layered-bool read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayeredBool {
@@ -422,5 +461,63 @@ mod tests {
 
         assert_eq!(read_oauth_account_email(), None);
         unset_user_dir();
+    }
+
+    #[test]
+    fn remote_control_finds_matching_session_file() {
+        let _g = TEST_ENV_LOCK.lock().unwrap();
+        let td = tmp("rc-match");
+        let sessions = td.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(
+            sessions.join("other.json"),
+            r#"{"sessionId":"other-session","remoteControl":{"enabled":false}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            sessions.join("mine.json"),
+            r#"{"sessionId":"target-session","remoteControl":{"enabled":true}}"#,
+        )
+        .unwrap();
+        set_user_dir(td.path());
+
+        assert_eq!(read_remote_control_status("target-session"), Some(true));
+        assert_eq!(read_remote_control_status("other-session"), Some(false));
+        assert_eq!(read_remote_control_status("nonexistent"), None);
+        unset_user_dir();
+    }
+
+    #[test]
+    fn remote_control_none_when_no_sessions_dir() {
+        let _g = TEST_ENV_LOCK.lock().unwrap();
+        let td = tmp("rc-nodir");
+        set_user_dir(td.path());
+        assert_eq!(read_remote_control_status("anything"), None);
+        unset_user_dir();
+    }
+
+    #[test]
+    fn remote_control_skips_malformed_files() {
+        let _g = TEST_ENV_LOCK.lock().unwrap();
+        let td = tmp("rc-bad");
+        let sessions = td.path().join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(sessions.join("bad.json"), "{not json").unwrap();
+        std::fs::write(
+            sessions.join("good.json"),
+            r#"{"sessionId":"S","remoteControl":{"enabled":true}}"#,
+        )
+        .unwrap();
+        set_user_dir(td.path());
+
+        // Bad file doesn't crash the iterator; good file still matches.
+        assert_eq!(read_remote_control_status("S"), Some(true));
+        unset_user_dir();
+    }
+
+    #[test]
+    fn remote_control_ignores_empty_session_id() {
+        let _g = TEST_ENV_LOCK.lock().unwrap();
+        assert_eq!(read_remote_control_status(""), None);
     }
 }
