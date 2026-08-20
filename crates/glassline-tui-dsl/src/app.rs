@@ -6,7 +6,7 @@ use std::{path::PathBuf, time::Duration};
 use ratatui::{
     Terminal,
     backend::Backend,
-    crossterm::event::{self, Event},
+    crossterm::event::{self, Event, KeyEventKind},
 };
 use thiserror::Error;
 
@@ -129,6 +129,15 @@ impl DslApp {
             }
             if event::poll(self.tick_rate)? {
                 let ev = event::read()?;
+                // Windows crossterm sends Press + Release for every
+                // key. Filter to Press only so screens see one event
+                // per physical keystroke. Non-Key events (Resize,
+                // Mouse, Paste, FocusGained/Lost) pass through.
+                if let Event::Key(k) = &ev
+                    && k.kind != KeyEventKind::Press
+                {
+                    continue;
+                }
                 if let Some(outcome) = self.step_event(ev) {
                     return Ok(outcome);
                 }
