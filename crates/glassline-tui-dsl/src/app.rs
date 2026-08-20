@@ -94,6 +94,15 @@ impl DslApp {
     /// The terminal is set up + torn down + panic-hooked automatically
     /// via `ratatui::run`.
     ///
+    /// **Panic safety:** `ratatui::run` installs a panic hook that
+    /// restores the terminal (leaves raw mode + alternate screen)
+    /// before the panic propagates. Any panic raised inside a
+    /// `Screen::render` or `Screen::on_event` unwinds through
+    /// `event_loop`, then through `ratatui::run`, cleaning up the
+    /// terminal on the way out. The unit tests below assert the
+    /// unwinding is preserved through our layer; the terminal-restore
+    /// side is trust-based on ratatui's documented contract.
+    ///
     /// # Errors
     /// Returns [`DslError::Io`] on terminal I/O failure.
     pub fn run(mut self) -> Result<Outcome, DslError> {
@@ -330,6 +339,42 @@ mod tests {
         assert_eq!(
             app.committed_path(),
             std::path::Path::new("/somewhere/settings.json")
+        );
+    }
+
+    /// Screen that panics from inside `render`. Used to prove panics
+    /// propagate through our `draw` layer.
+    struct BoomScreen;
+    impl Screen for BoomScreen {
+        fn render(&mut self, _ui: &mut Ui) {
+            panic!("boom from screen render");
+        }
+        fn on_event(&mut self, _ev: Event) -> Action {
+            Action::None
+        }
+        fn title(&self) -> &str {
+            "Boom"
+        }
+        fn keybindings(&self) -> &[(&'static str, &'static str)] {
+            &[]
+        }
+    }
+
+    #[test]
+    fn draw_propagates_screen_panic() {
+        // DslApp must not swallow panics — they need to bubble out so
+        // ratatui's panic hook can restore the terminal.
+        let backend = TestBackend::new(10, 3);
+        let mut term = Terminal::new(backend).unwrap();
+        let mut app = DslApp::new(
+            Box::new(BoomScreen),
+            Settings::default(),
+            PathBuf::from("/tmp/x.json"),
+        );
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.draw(&mut term)));
+        assert!(
+            result.is_err(),
+            "expected panic from BoomScreen to bubble out"
         );
     }
 }
