@@ -34,6 +34,7 @@ pub mod git_conflicts;
 pub mod git_deletions;
 pub mod git_insertions;
 pub mod git_is_fork;
+pub mod git_origin_host;
 pub mod git_origin_owner;
 pub mod git_origin_owner_repo;
 pub mod git_origin_repo;
