@@ -332,6 +332,15 @@ pub enum InstallError {
     },
 }
 
+/// Threshold above which the install report nags about `refreshInterval`.
+///
+/// Claude Code's `refreshInterval` is in SECONDS, minimum `1` (see
+/// https://code.claude.com/docs/en/statusline). Animations advance one
+/// frame per refresh, so at 5s+ idle refresh, effects like `animate: pulse`
+/// and threshold flashing barely move. Users who haven't set any
+/// animation metadata don't care; users who have will see the hint.
+const REFRESH_INTERVAL_NAG_SECONDS: u64 = 5;
+
 /// Format an [`InstallReport`] into a terse, user-facing summary.
 #[must_use]
 pub fn render_report(report: &InstallReport, action: &str) -> String {
@@ -358,12 +367,84 @@ pub fn render_report(report: &InstallReport, action: &str) -> String {
     } else {
         out.push_str("  after:  (statusLine removed)\n");
     }
+    if let Some(secs) = extract_refresh_interval(report.new.as_ref())
+        && secs >= REFRESH_INTERVAL_NAG_SECONDS
+    {
+        out.push_str(&format!(
+            "\n  Note: statusLine.refreshInterval is {secs}s — animation effects\n  \
+             (animate: pulse, threshold flashing, pulseAbove) advance one frame\n  \
+             per refresh. Lower this in {} (minimum 1) for smoother pulses at\n  \
+             idle. See https://code.claude.com/docs/en/statusline.\n",
+            report.path.display(),
+        ));
+    }
     out
+}
+
+fn extract_refresh_interval(status_line: Option<&Value>) -> Option<u64> {
+    status_line?.get("refreshInterval")?.as_u64()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn render_report_appends_hint_when_refresh_interval_high() {
+        // refreshInterval is documented in SECONDS (Claude Code docs,
+        // https://code.claude.com/docs/en/statusline).
+        let report = InstallReport {
+            path: PathBuf::from("/fake/settings.json"),
+            previous: None,
+            new: Some(json!({
+                "type": "command",
+                "command": "glassline",
+                "refreshInterval": 10
+            })),
+            wrote: true,
+        };
+        let text = render_report(&report, "install");
+        assert!(
+            text.contains("refreshInterval is 10s"),
+            "expected cadence hint in report, got: {text}"
+        );
+    }
+
+    #[test]
+    fn render_report_skips_hint_when_refresh_interval_low() {
+        let report = InstallReport {
+            path: PathBuf::from("/fake/settings.json"),
+            previous: None,
+            new: Some(json!({
+                "type": "command",
+                "command": "glassline",
+                "refreshInterval": 1
+            })),
+            wrote: true,
+        };
+        let text = render_report(&report, "install");
+        // The JSON dump includes "refreshInterval": 1 — match on the
+        // hint's distinctive prose instead.
+        assert!(
+            !text.contains("refreshInterval is"),
+            "did not expect hint at 1s, got: {text}"
+        );
+    }
+
+    #[test]
+    fn render_report_skips_hint_when_refresh_interval_absent() {
+        let report = InstallReport {
+            path: PathBuf::from("/fake/settings.json"),
+            previous: None,
+            new: Some(json!({
+                "type": "command",
+                "command": "glassline"
+            })),
+            wrote: true,
+        };
+        let text = render_report(&report, "install");
+        assert!(!text.contains("refreshInterval is"));
+    }
 
     /// Tiny inline temp-dir helper; avoids pulling `tempfile` into
     /// production dependencies just for tests.

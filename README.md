@@ -72,3 +72,64 @@ glassline uninstall   # revert
 ```
 
 Prebuilt raw archives + `SHA256SUMS.txt` are on the [Releases](https://github.com/kurtbot/glassline/releases) page if you'd rather download manually.
+
+## Migrating from ccstatusline
+
+If you already have a working `ccstatusline` config, `glassline import` picks it up and migrates it in one shot — no hand-copy, no schema archaeology.
+
+```bash
+glassline import                          # auto-detect + prompt
+glassline import --dry-run                # preview only, no writes
+glassline import --from /path/settings.json --to /path/glassline.json --yes
+```
+
+The importer probes six paths for a ccstatusline source (`$CCSTATUSLINE_CONFIG`, XDG, `~/.config/ccstatusline`, legacy `~/.claude/ccstatusline`, `%APPDATA%`, `%LOCALAPPDATA%`) and writes to glassline's own config path atomically under a `settings.lock`. The original ccstatusline file is never modified — deleting the freshly-written glassline `settings.json` reverts you.
+
+Exit codes: `0` ok · `1` no source · `2` parse/migrate error · `3` target exists without `--force` · `4` write error.
+
+## Animation
+
+Effects like coloured thresholds and pulses are opt-in per widget via `settings.json` metadata. Nothing animates by default.
+
+Per-widget metadata keys (`WidgetSpec.metadata`, values are strings):
+
+| Key             | Value                              | Effect                                                |
+|-----------------|------------------------------------|-------------------------------------------------------|
+| `animate`       | `rainbow`, `pulse`, `sweep`        | Unconditional time-based colour cycle                 |
+| `cycleSeconds`  | `"30"`                             | Cycle length (default 60)                             |
+| `thresholds`    | `"50:green,80:yellow,100:red"`     | Colour picker keyed on rendered percent (ascending)   |
+| `pulseAbove`    | `"80"`, `"80%"`, `"0.8"`           | Pulse only when rendered percent ≥ N — composes with `thresholds` |
+| `gradientStart` | `"#rrggbb"`                        | Start colour for a static or sweep gradient           |
+| `gradientEnd`   | `"#rrggbb"`                        | End colour for a static or sweep gradient             |
+
+Thresholds and `pulseAbove` need a percent to work against. Widgets that render a percent directly (`context-percentage`, `session-usage`, `weekly-*`) read it from their own text. Token/cache widgets (`context-length`, `tokens-*`, `cache-*`) attach a hidden percent hint of context-window occupancy, so the same effects fire on them without changing the visible text.
+
+**Two examples.** Pulse the context-length widget when it crosses 85% of the window:
+
+```json
+{
+  "type": "context-length",
+  "color": "blue",
+  "metadata": { "pulseAbove": "85" }
+}
+```
+
+Compose with a colour ramp — cyan under 60%, yellow to 80%, bright red to 90%, flashing red past 90%:
+
+```json
+{
+  "type": "context-percentage",
+  "metadata": {
+    "thresholds": "60:cyan,80:yellow,90:brightRed,100:#ff0000|#8b0000",
+    "pulseAbove": "85"
+  }
+}
+```
+
+The `|`-separated form under `thresholds` alternates one colour per second — a flashing warning band.
+
+### Animation cadence limitation
+
+Claude Code samples the status line on user/tool events and on its configured `refreshInterval` when idle. Every animation effect (`pulse`, `rainbow`, `sweep`, flashing `thresholds`, `pulseAbove`) advances one frame per sample — visibly smooth during active work, frozen when idle.
+
+To see smoother animation while idle, lower `refreshInterval` (in `~/.claude/settings.json`, inside the `statusLine` object). The value is in **seconds**, minimum `1` (see [Claude Code docs](https://code.claude.com/docs/en/statusline)). `glassline install` prints a hint when it detects a value ≥ 5 seconds.
