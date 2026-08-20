@@ -2,7 +2,11 @@
 
 ## Overview
 
-Rust port of [ccstatusline](https://github.com/sirmalloc/ccstatusline) — a customizable status line formatter for the Claude Code CLI. Reads Claude Code's `StatusJSON` payload on stdin and writes an ANSI status line to stdout: current model, context-window usage, git state, session/weekly usage percentages, token throughput, and more, driven by a JSON config that matches the upstream schema.
+Rust port of [ccstatusline](https://github.com/sirmalloc/ccstatusline) — a customizable status line formatter for the Claude Code CLI. Reads Claude Code's `StatusJSON` payload on stdin and writes an ANSI status line to stdout: current model, context-window usage, git and jujutsu state, session/weekly usage percentages, token throughput, PR/CI status, and more — driven by a JSON config that matches the upstream schema.
+
+**Widget catalog:** 83 of 87 upstream widget IDs (~95%) resolve in the built-in registry. The four deferred (`vim-mode`, `voice-status`, `sandbox-status`, `remote-control-status`, `claude-account-email`, `cache-timer`) need scanner extensions, IPC protocols, or filesystem watchers that don't exist yet.
+
+**Hardening:** cross-process lock file, macOS Keychain fallback for OAuth token, `HTTPS_PROXY` / `NO_PROXY` resolution, per-outcome cache TTL, `Retry-After` honoring on 429.
 
 ## Attribution
 
