@@ -19,9 +19,9 @@ use crate::builtins::{
     git_upstream_owner_repo, git_upstream_repo, git_worktree, git_worktree_branch,
     git_worktree_mode, git_worktree_name, git_worktree_original_branch, jj_bookmarks, jj_changes,
     jj_deletions, jj_description, jj_insertions, jj_revision, jj_root_dir, jj_workspace, link,
-    model, output_style, separator, session_clock, session_cost, session_name, skills, speed,
-    terminal_width, thinking_effort, tokens_cached, tokens_input, tokens_output, tokens_total,
-    usage, version, vim_mode,
+    model, output_style, sandbox_status, separator, session_clock, session_cost, session_name,
+    skills, speed, terminal_width, thinking_effort, tokens_cached, tokens_input, tokens_output,
+    tokens_total, usage, version, vim_mode,
 };
 
 /// A zero-arg factory. Widgets are cheap to construct — no shared state.
@@ -95,6 +95,7 @@ pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "model" => model::factory,
     "output-speed" => speed::output_factory,
     "output-style" => output_style::factory,
+    "sandbox-status" => sandbox_status::factory,
     "separator" => separator::factory,
     "session-clock" => session_clock::factory,
     "session-cost" => session_cost::factory,
