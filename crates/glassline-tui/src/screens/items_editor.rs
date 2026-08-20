@@ -18,6 +18,7 @@ use ratatui::{
 use glassline_core::settings::WidgetSpec;
 use glassline_tui_dsl::{Action, List, Panel, Preview, Screen, Ui};
 
+use crate::meta::METAS;
 use crate::preview_ctx::canned_context;
 use crate::screens::confirm_modal::ConfirmModal;
 use crate::screens::widget_editor::WidgetEditor;
@@ -114,18 +115,7 @@ impl Screen for ItemsEditor {
                 let lines: Vec<Line> = items
                     .iter()
                     .enumerate()
-                    .map(|(i, spec)| {
-                        let marker = if i == self.cursor { "> " } else { "  " };
-                        let style = if i == self.cursor {
-                            Style::default().add_modifier(Modifier::REVERSED)
-                        } else {
-                            Style::default()
-                        };
-                        Line::from(vec![
-                            Span::raw(marker),
-                            Span::styled(format!("{}: {}", spec.id, spec.kind), style),
-                        ])
-                    })
+                    .map(|(i, spec)| row_line(i, spec, i == self.cursor))
                     .collect();
                 frame.render_widget(Paragraph::new(lines), inner);
             },
@@ -175,6 +165,37 @@ impl Screen for ItemsEditor {
             _ => Action::None,
         }
     }
+}
+
+/// Render one row: `> 3. git-branch  Git branch  #cyan`. Internal
+/// widget ids never surface here — they're implementation detail.
+fn row_line(index: usize, spec: &WidgetSpec, focused: bool) -> Line<'_> {
+    let marker = if focused { "> " } else { "  " };
+    let style = if focused {
+        Style::default().add_modifier(Modifier::REVERSED)
+    } else {
+        Style::default()
+    };
+    let index_col = format!("{:>2}. ", index + 1);
+    let human = METAS
+        .get(spec.kind.as_str())
+        .map(|m| m.label)
+        .unwrap_or("(unknown)");
+    let color = spec
+        .color
+        .as_deref()
+        .map(|c| format!("  #{c}"))
+        .unwrap_or_default();
+    Line::from(vec![
+        Span::raw(marker),
+        Span::styled(index_col, Style::default().add_modifier(Modifier::DIM)),
+        Span::styled(spec.kind.clone(), style),
+        Span::styled(
+            format!("  {human}"),
+            Style::default().add_modifier(Modifier::DIM),
+        ),
+        Span::styled(color, Style::default().add_modifier(Modifier::DIM)),
+    ])
 }
 
 impl ItemsEditor {
