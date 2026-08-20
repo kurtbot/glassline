@@ -8,11 +8,14 @@
 //! | `animate`         | `rainbow` \| `pulse` \| `sweep`    | time-based color cycle              |
 //! | `cycleSeconds`    | `"30"`                             | cycle length (default 60)           |
 //! | `gradientStart`   | `"#rrggbb"`                        | start color for static gradient     |
-//! | `gradientEnd`     | `"#rrggbb"`                        | end color for static gradient       |
+//! | `gradientEnd`     | `"#rrggbb"`                        | end color for static gradient     |
 //! | `thresholds`      | `"50:green,80:yellow,100:red"`     | value-driven fg (traffic-light)     |
+//! | `pulseAbove`      | `"90"` \| `"90%"` \| `"0.9"`       | pulse only when rendered pct >= N   |
 //!
-//! Precedence: `thresholds` wins (if the widget's rendered text has a
-//! numeric %), then `animate`, then static gradient, then no change.
+//! Precedence: `thresholds` wins (color pick), then `pulseAbove` decides
+//! whether to pulse the (already colored) spans, then `animate`, then
+//! static gradient, then no change. `thresholds` + `pulseAbove` compose —
+//! set both to get "yellow at 70%, pulsed-red at 90%".
 //!
 //! Because Claude Code refreshes the statusline at its `refreshInterval`
 //! (typically 10s), "animation" is really "one frame per refresh". The
@@ -38,17 +41,7 @@ pub fn apply(spans: Vec<StyledSpan>, spec: &WidgetSpec, now_ms: u64) -> Vec<Styl
         return spans;
     }
 
-    // 1. Value-driven thresholds (traffic-light). Extracted from the
-    //    rendered text via `\d+(\.\d+)?%` so no Widget-trait change
-    //    is required.
-    if let Some(threshold_str) = meta.get("thresholds")
-        && let Some(value) = extract_percent(&spans)
-        && let Some(color) = pick_threshold_color(threshold_str, value, now_ms)
-    {
-        return apply_flat_fg(spans, color);
-    }
-
-    // 2. Time-based animations.
+    // Shared cycle math used by pulse and pulseAbove.
     let cycle_s = meta
         .get("cycleSeconds")
         .and_then(|s| s.parse::<u64>().ok())
@@ -59,14 +52,42 @@ pub fn apply(spans: Vec<StyledSpan>, spec: &WidgetSpec, now_ms: u64) -> Vec<Styl
     } else {
         ((now_ms / 1000) % cycle_s) as f64 / cycle_s as f64
     };
+    let sinusoidal_brightness = || 0.35 + 0.65 * (std::f64::consts::PI * phase).sin();
 
+    // 1. Value-driven thresholds (traffic-light). Extracted from the
+    //    rendered text via `\d+(\.\d+)?%` so no Widget-trait change
+    //    is required. May be followed by pulseAbove; do NOT return
+    //    early — fall through so the pulseAbove branch can animate
+    //    the freshly-picked color.
+    let mut spans = if let Some(threshold_str) = meta.get("thresholds")
+        && let Some(value) = extract_percent(&spans)
+        && let Some(color) = pick_threshold_color(threshold_str, value, now_ms)
+    {
+        apply_flat_fg(spans, color)
+    } else {
+        spans
+    };
+
+    // 2. `pulseAbove: "<N>"` — implicit pulse when the rendered percent
+    //    crosses N. Composes with `thresholds` (color already picked
+    //    above). Uses the same cycleSeconds/phase math as the explicit
+    //    `animate: pulse` branch below.
+    if let Some(threshold_str) = meta.get("pulseAbove")
+        && let Some(threshold) = parse_percent_threshold(threshold_str)
+        && let Some(value) = extract_percent(&spans)
+        && value >= threshold
+    {
+        spans = apply_pulse(spans, sinusoidal_brightness());
+        // pulseAbove is a conditional effect — once it fires (or doesn't),
+        // fall through so `animate:` can still stack sweep or rainbow if
+        // the user configured both. Keeping compose-forward semantics.
+    }
+
+    // 3. Time-based animations (explicit `animate:` key).
     match meta.get("animate").map(String::as_str) {
         Some("rainbow") => return apply_flat_rgb(spans, hsl_to_rgb(phase, 1.0, 0.5)),
         Some("pulse") => {
-            // Sinusoidal brightness on the widget's existing fg (or on
-            // white if no explicit color); wraps 0 -> 1 -> 0 per cycle.
-            let brightness = 0.35 + 0.65 * (std::f64::consts::PI * phase).sin();
-            return apply_pulse(spans, brightness);
+            return apply_pulse(spans, sinusoidal_brightness());
         }
         Some("sweep") => {
             if let Some((start, end)) = read_gradient_stops(meta) {
@@ -76,12 +97,34 @@ pub fn apply(spans: Vec<StyledSpan>, spec: &WidgetSpec, now_ms: u64) -> Vec<Styl
         _ => {}
     }
 
-    // 3. Static per-character gradient (no animation).
+    // 4. Static per-character gradient (no animation).
     if let Some((start, end)) = read_gradient_stops(meta) {
         return apply_char_gradient(spans, start, end);
     }
 
     spans
+}
+
+/// Parse a `pulseAbove` metadata value into a percent (0.0..=100.0).
+///
+/// Accepts three shapes for user convenience:
+/// - `"90"` — treated as 90 percent.
+/// - `"90%"` — same as above.
+/// - `"0.9"` — treated as 90 percent (fractional form).
+///
+/// Returns `None` for garbage or negative values. Values greater than 100
+/// clamp to 100 (a pulseAbove of "150" means "pulse only at literally
+/// max" — same as 100, still useful for "never pulse" via 101 if a user
+/// really wants that shape).
+fn parse_percent_threshold(spec: &str) -> Option<f64> {
+    let trimmed = spec.trim().trim_end_matches('%');
+    let value: f64 = trimmed.parse().ok()?;
+    if value.is_nan() || value < 0.0 {
+        return None;
+    }
+    // Fractional form: 0.9 → 90.
+    let pct = if value <= 1.0 { value * 100.0 } else { value };
+    Some(pct.min(100.0))
 }
 
 // -------- helpers --------
@@ -536,6 +579,74 @@ mod tests {
                 b: 0x00
             }
         ));
+    }
+
+    #[test]
+    fn pulse_above_fires_only_when_percent_reaches_threshold() {
+        let spec = spec_with_meta(&[("pulseAbove", "80"), ("cycleSeconds", "2")]);
+        // 70% -> below threshold -> passthrough.
+        let low = apply(plain("Ctx: 70%"), &spec, 1_000);
+        assert!(matches!(low[0].fg, Color::Default), "expected passthrough at 70%");
+        // 85% -> above threshold -> pulsed. brightness at now_ms=1000
+        // (phase 0.5) is ~1.0, so fg becomes bright-white RGB.
+        let mut hi_spans = plain("Ctx: 85%");
+        hi_spans[0].fg = Color::Named("blue".into());
+        let hi = apply(hi_spans, &spec, 1_000);
+        assert!(matches!(hi[0].fg, Color::Rgb { .. }), "expected Rgb after pulse");
+    }
+
+    #[test]
+    fn pulse_above_composes_with_thresholds() {
+        // At 85%, thresholds picks brightRed AND pulseAbove pulses that
+        // color. Result: pulsed RGB derived from brightRed base (241,76,76).
+        let spec = spec_with_meta(&[
+            ("thresholds", "60:cyan,80:yellow,90:brightRed"),
+            ("pulseAbove", "80"),
+            ("cycleSeconds", "2"),
+        ]);
+        let out = apply(plain("Ctx: 85%"), &spec, 1_000);
+        match out[0].fg {
+            Color::Rgb { r, g, b } => {
+                // brightness ~= 1.0 -> ~= brightRed (241, 76, 76).
+                assert!((i32::from(r) - 241).abs() < 10, "r={r}");
+                assert!((i32::from(g) - 76).abs() < 10, "g={g}");
+                assert!((i32::from(b) - 76).abs() < 10, "b={b}");
+            }
+            _ => panic!("expected Rgb after threshold+pulse"),
+        }
+    }
+
+    #[test]
+    fn pulse_above_accepts_various_formats() {
+        for spec_val in ["90", "90%", "0.9"] {
+            let spec = spec_with_meta(&[("pulseAbove", spec_val), ("cycleSeconds", "2")]);
+            let out = apply(plain("Ctx: 95%"), &spec, 1_000);
+            assert!(
+                matches!(out[0].fg, Color::Rgb { .. }),
+                "expected pulse to fire at 95% for pulseAbove={spec_val}"
+            );
+        }
+    }
+
+    #[test]
+    fn pulse_above_no_op_without_percent_source() {
+        // Text carries no percent AND there's no metadata_percent hint on
+        // any span (T6 lands the hint path). pulseAbove must skip cleanly.
+        let spec = spec_with_meta(&[("pulseAbove", "50"), ("cycleSeconds", "2")]);
+        let out = apply(plain("Ctx: 78k tokens"), &spec, 1_000);
+        assert!(matches!(out[0].fg, Color::Default), "expected passthrough with no % source");
+    }
+
+    #[test]
+    fn parse_percent_threshold_shapes() {
+        assert_eq!(parse_percent_threshold("90"), Some(90.0));
+        assert_eq!(parse_percent_threshold("90%"), Some(90.0));
+        assert_eq!(parse_percent_threshold(" 85 "), Some(85.0));
+        assert_eq!(parse_percent_threshold("0.9"), Some(90.0));
+        assert_eq!(parse_percent_threshold("1.0"), Some(100.0));
+        assert_eq!(parse_percent_threshold("101"), Some(100.0));
+        assert_eq!(parse_percent_threshold("-5"), None);
+        assert_eq!(parse_percent_threshold("garbage"), None);
     }
 
     #[test]
