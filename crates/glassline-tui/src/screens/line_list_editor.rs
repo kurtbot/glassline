@@ -19,6 +19,7 @@ use glassline_tui_dsl::{Action, Panel, Preview, Screen, Ui};
 use crate::preview_ctx::canned_context;
 use crate::screens::confirm_modal::ConfirmModal;
 use crate::screens::items_editor::ItemsEditor;
+use crate::screens::main_menu::preview_height;
 
 #[derive(Default)]
 pub struct LineListEditor {
@@ -49,8 +50,9 @@ impl Screen for LineListEditor {
         }
 
         let area = ui.area();
+        let preview_h = preview_height(ui.settings.lines.len());
         let [preview_area, list_area, hint] = Layout::vertical([
-            Constraint::Length(3),
+            Constraint::Length(preview_h),
             Constraint::Fill(1),
             Constraint::Length(1),
         ])

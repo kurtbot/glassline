@@ -21,6 +21,7 @@ use glassline_tui_dsl::{Action, List, Panel, Preview, Screen, Ui};
 use crate::meta::METAS;
 use crate::preview_ctx::canned_context;
 use crate::screens::confirm_modal::ConfirmModal;
+use crate::screens::main_menu::preview_height;
 use crate::screens::widget_editor::WidgetEditor;
 use crate::screens::widget_picker::WidgetPicker;
 
@@ -81,8 +82,9 @@ impl Screen for ItemsEditor {
         }
 
         let area = ui.area();
+        let preview_h = preview_height(ui.settings.lines.len());
         let [preview_area, list_area, hint] = Layout::vertical([
-            Constraint::Length(3),
+            Constraint::Length(preview_h),
             Constraint::Fill(1),
             Constraint::Length(1),
         ])

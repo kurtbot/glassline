@@ -101,6 +101,15 @@ fn entry_label(e: &&'static MenuEntry) -> String {
     e.label.to_string()
 }
 
+/// Height (rows, including borders) the preview panel should reserve
+/// for a settings config with `line_count` lines. Clamps to
+/// `[3, 8]` — enough to always show at least one row, capped so the
+/// preview doesn't swallow the screen when someone stacks many lines.
+pub(crate) fn preview_height(line_count: usize) -> u16 {
+    let content = line_count.clamp(1, 6);
+    (content as u16) + 2
+}
+
 /// The main menu screen.
 pub struct MainMenu {
     list: List<&'static MenuEntry>,
@@ -137,8 +146,9 @@ impl Screen for MainMenu {
 
     fn render(&mut self, ui: &mut Ui) {
         let area = ui.area();
+        let preview_h = preview_height(ui.settings.lines.len());
         let [preview_area, menu_area, hint_row] = Layout::vertical([
-            Constraint::Length(3),
+            Constraint::Length(preview_h),
             Constraint::Fill(1),
             Constraint::Length(1),
         ])

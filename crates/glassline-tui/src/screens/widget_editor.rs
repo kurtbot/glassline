@@ -21,6 +21,7 @@ use glassline_tui_dsl::{Action, Panel, Preview, Screen, Ui};
 use crate::meta::{METAS, MetaKnob, Styling, WidgetKnob, WidgetMeta};
 use crate::preview_ctx::canned_context;
 use crate::screens::color_menu::ColorMenu;
+use crate::screens::main_menu::preview_height;
 
 pub struct WidgetEditor {
     line_index: usize,
@@ -114,8 +115,9 @@ impl Screen for WidgetEditor {
         }
 
         let area = ui.area();
+        let preview_h = preview_height(ui.settings.lines.len());
         let [preview_area, header, list_area, hint] = Layout::vertical([
-            Constraint::Length(3),
+            Constraint::Length(preview_h),
             Constraint::Length(2),
             Constraint::Fill(1),
             Constraint::Length(1),
