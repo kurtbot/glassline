@@ -206,11 +206,15 @@ fn extract_number(stat: &str, keyword: &str) -> u32 {
     stat[start..end].parse().unwrap_or(0)
 }
 
-/// A parsed `<owner>/<repo>` pair from a git remote URL.
+/// A parsed `<host>/<owner>/<repo>` triple from a git remote URL. `host`
+/// is optional — `parse_remote_url` populates it from the URL when
+/// present, and `get_git_origin` may leave it empty when the fast-path
+/// StatusJson field doesn't carry it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitRemote {
     pub owner: String,
     pub repo: String,
+    pub host: Option<String>,
 }
 
 /// Parse a git remote URL into `<owner>/<repo>` components.
@@ -238,21 +242,29 @@ pub fn parse_remote_url(url: &str) -> Option<GitRemote> {
 
     // SSH form: `git@host:owner/repo`
     if let Some(rest) = stripped.strip_prefix("git@")
-        && let Some((_host, path)) = rest.split_once(':')
+        && let Some((host, path)) = rest.split_once(':')
     {
-        return split_owner_repo(path);
+        return split_owner_repo(path, Some(host));
     }
-    // ssh://user@host/owner/repo
+    // scheme://[user@]host/owner/repo
     for scheme in ["ssh://", "git://", "https://", "http://"] {
         if let Some(rest) = stripped.strip_prefix(scheme) {
-            let after_host = rest.split_once('/').map(|(_, tail)| tail)?;
-            return split_owner_repo(after_host);
+            let (host_part, after_host) = rest.split_once('/')?;
+            let host = strip_user_prefix(host_part);
+            return split_owner_repo(after_host, Some(host));
         }
     }
     None
 }
 
-fn split_owner_repo(path: &str) -> Option<GitRemote> {
+/// Drop any `user@` (or `user:pass@`) prefix from the host segment of a
+/// `scheme://` URL. Multiple `@`s split at the last one so weird auth
+/// strings still leave the actual host.
+fn strip_user_prefix(s: &str) -> &str {
+    s.rsplit_once('@').map_or(s, |(_, host)| host)
+}
+
+fn split_owner_repo(path: &str, host: Option<&str>) -> Option<GitRemote> {
     // Path is `owner/repo` — split on last '/' so nested paths like
     // `group/subgroup/repo` still yield ("group/subgroup", "repo") but we
     // conservatively require exactly one slash for now (matches TS behavior
@@ -269,6 +281,10 @@ fn split_owner_repo(path: &str) -> Option<GitRemote> {
     Some(GitRemote {
         owner: owner.to_string(),
         repo: repo.to_string(),
+        host: host
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from),
     })
 }
 
@@ -428,6 +444,7 @@ mod tests {
                 workspace: Some(Workspace {
                     current_dir: Some("/ws".into()),
                     project_dir: Some("/proj".into()),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -444,6 +461,7 @@ mod tests {
                 workspace: Some(Workspace {
                     current_dir: Some("   ".into()),
                     project_dir: Some("/proj".into()),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -497,6 +515,7 @@ mod tests {
         let r = parse_remote_url("git@github.com:kurtbot/glassline.git").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -504,6 +523,7 @@ mod tests {
         let r = parse_remote_url("https://github.com/kurtbot/glassline.git").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -511,6 +531,7 @@ mod tests {
         let r = parse_remote_url("https://github.com/kurtbot/glassline").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -518,6 +539,7 @@ mod tests {
         let r = parse_remote_url("https://github.com/kurtbot/glassline/").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -525,6 +547,7 @@ mod tests {
         let r = parse_remote_url("git://github.com/kurtbot/glassline.git").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -532,6 +555,23 @@ mod tests {
         let r = parse_remote_url("ssh://git@github.com/kurtbot/glassline.git").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        // `user@` should be stripped — the host is just github.com.
+        assert_eq!(r.host.as_deref(), Some("github.com"));
+    }
+
+    #[test]
+    fn parse_remote_url_host_from_gitlab() {
+        // Non-github hosts round-trip too.
+        let r = parse_remote_url("git@gitlab.example.com:group/repo.git").unwrap();
+        assert_eq!(r.host.as_deref(), Some("gitlab.example.com"));
+    }
+
+    #[test]
+    fn parse_remote_url_host_strips_userauth_with_password() {
+        // Weird but legal: user:pass@host. rsplit_once at the LAST `@`
+        // must leave just the host.
+        let r = parse_remote_url("https://user:tok@github.com/kurtbot/glassline.git").unwrap();
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
