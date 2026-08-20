@@ -18,13 +18,57 @@ If you fork or reuse this port, please preserve BOTH copyright notices and this 
 
 ## Installation
 
+Pick whichever channel fits. Every option installs the same binary — after any of them, run `glassline install` to wire it into `~/.claude/settings.json`.
+
+### Universal one-liner (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kurtbot/glassline/main/packaging/install.sh | sh
+```
+
+Downloads the archive matching your OS+arch from the latest release, verifies its SHA256, extracts to `~/.local/bin/glassline`.
+
+Pin a version: `sh -s -- --version v0.5.1`. Override dir: `sh -s -- --dir /usr/local/bin`.
+
+### Windows (PowerShell)
+
+```powershell
+iwr https://raw.githubusercontent.com/kurtbot/glassline/main/packaging/install.ps1 -UseBasicParsing | iex
+```
+
+Installs to `%LOCALAPPDATA%\glassline\glassline.exe`. Same SHA256 verification.
+
+### Homebrew (macOS + Linuxbrew)
+
+```bash
+brew tap kurtbot/glassline https://github.com/kurtbot/glassline.git
+brew install glassline
+```
+
+### cargo-binstall (Rust ecosystem)
+
+Fetches the prebuilt binary instead of source-compiling:
+
+```bash
+cargo binstall --git https://github.com/kurtbot/glassline glassline-render
+```
+
+(The `--git` flag is required because the crates are workspace-only — not published to crates.io.)
+
+### From source
+
 Requires Rust 1.96.0 (pinned in `rust-toolchain.toml`).
 
 ```bash
 cargo install --path crates/glassline-render
-glassline install        # wires the binary into ~/.claude/settings.json
 ```
 
-Uninstall with `glassline uninstall`.
+### After install
 
-Prebuilt binaries for Linux, macOS, and Windows are published on the [Releases](https://github.com/kurtbot/glassline/releases) page once tagged.
+```bash
+glassline install     # writes ~/.claude/settings.json statusLine hook
+glassline --version   # confirm
+glassline uninstall   # revert
+```
+
+Prebuilt raw archives + `SHA256SUMS.txt` are on the [Releases](https://github.com/kurtbot/glassline/releases) page if you'd rather download manually.
