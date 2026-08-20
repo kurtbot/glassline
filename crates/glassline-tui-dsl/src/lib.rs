@@ -4,8 +4,10 @@
 //! Screens depend on this crate, never on `ratatui::*` directly, so the
 //! rendering backend stays swappable without touching downstream code.
 
+pub mod app;
 pub mod screen;
 pub mod ui;
 
+pub use app::{DslApp, DslError};
 pub use screen::{Action, Outcome, Screen};
 pub use ui::Ui;
