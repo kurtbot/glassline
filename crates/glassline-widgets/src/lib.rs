@@ -11,6 +11,7 @@
 pub mod builtins;
 pub mod common;
 pub mod git;
+pub mod jj;
 pub mod registry;
 
 pub use registry::{WIDGETS, WidgetFactory, resolve};

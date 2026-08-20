@@ -16,9 +16,10 @@ use crate::builtins::{
     git_staged, git_staged_files, git_status, git_unstaged, git_unstaged_files, git_untracked,
     git_untracked_files, git_upstream_owner, git_upstream_owner_repo, git_upstream_repo,
     git_worktree, git_worktree_branch, git_worktree_mode, git_worktree_name,
-    git_worktree_original_branch, link, model, output_style, separator, session_clock,
-    session_cost, session_name, speed, thinking_effort, tokens_cached, tokens_input, tokens_output,
-    tokens_total, usage, version,
+    git_worktree_original_branch, jj_bookmarks, jj_changes, jj_deletions, jj_description,
+    jj_insertions, jj_revision, jj_root_dir, jj_workspace, link, model, output_style, separator,
+    session_clock, session_cost, session_name, speed, thinking_effort, tokens_cached, tokens_input,
+    tokens_output, tokens_total, usage, version,
 };
 
 /// A zero-arg factory. Widgets are cheap to construct — no shared state.
@@ -76,6 +77,14 @@ pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "git-worktree-name" => git_worktree_name::factory,
     "git-worktree-original-branch" => git_worktree_original_branch::factory,
     "input-speed" => speed::input_factory,
+    "jj-bookmarks" => jj_bookmarks::factory,
+    "jj-changes" => jj_changes::factory,
+    "jj-deletions" => jj_deletions::factory,
+    "jj-description" => jj_description::factory,
+    "jj-insertions" => jj_insertions::factory,
+    "jj-revision" => jj_revision::factory,
+    "jj-root-dir" => jj_root_dir::factory,
+    "jj-workspace" => jj_workspace::factory,
     "link" => link::factory,
     "model" => model::factory,
     "output-speed" => speed::output_factory,
