@@ -10,19 +10,6 @@ description = "Hot-path binary for glassline — reads a StatusJSON payload on s
 publish = false
 default-run = "glassline"
 
-# `cargo binstall glassline-render --git https://github.com/kurtbot/glassline`
-# fetches the matching release archive instead of source-compiling. The
-# templating below tells cargo-binstall which archive to grab per target.
-# We publish nothing to crates.io (publish = false), so users must use
-# --git; the README documents this.
-[package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/v{ version }/glassline-{ target }.{ archive-format }"
-pkg-fmt = "tgz"
-bin-dir = "{ bin }{ binary-ext }"
-
-[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
-pkg-fmt = "zip"
-
 [[bin]]
 name = "glassline"
 path = "src/main.rs"
