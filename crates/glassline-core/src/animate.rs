@@ -216,6 +216,7 @@ fn apply_char_gradient(
                 italic: span.italic,
                 underline: span.underline,
                 gradient_hint: true,
+                metadata_percent: None,
             });
             idx += 1;
         }
@@ -261,6 +262,7 @@ fn apply_sweep_gradient(
                 italic: span.italic,
                 underline: span.underline,
                 gradient_hint: true,
+                metadata_percent: None,
             });
             idx += 1;
         }
@@ -319,8 +321,17 @@ fn parse_color_spec(s: &str) -> Option<Color> {
 }
 
 fn extract_percent(spans: &[StyledSpan]) -> Option<f64> {
+    // Prefer an explicit percent hint attached by the widget itself —
+    // widgets whose rendered text doesn't include a literal `%`
+    // (`context-length`, `tokens-*`, `cache-*`) attach a zero-width
+    // sentinel span carrying `metadata_percent` so thresholds + pulseAbove
+    // can still fire. Any span in the run may carry the hint; take the
+    // first one found.
+    if let Some(pct) = spans.iter().find_map(|s| s.metadata_percent) {
+        return Some(pct);
+    }
+    // Fall back to text scan: first `<digits>[.<digits>]%` pattern wins.
     let text: String = spans.iter().map(|s| s.text.as_str()).collect();
-    // Walk through and find the first `<digits>[.<digits>]%` pattern.
     let bytes = text.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -655,6 +666,60 @@ mod tests {
         let out = apply(plain("no percent here"), &spec, 0);
         // No `%` -> effect skipped -> passthrough.
         assert!(matches!(out[0].fg, Color::Default));
+    }
+
+    #[test]
+    fn extract_percent_prefers_hint_over_text() {
+        // Both a literal 50% AND a hint of 90.0 — hint wins so widgets
+        // that carry a computed percent don't have to strip their own
+        // rendered numbers.
+        let spans = vec![
+            StyledSpan {
+                text: "50%".into(),
+                ..Default::default()
+            },
+            StyledSpan {
+                text: String::new(),
+                metadata_percent: Some(90.0),
+                ..Default::default()
+            },
+        ];
+        assert_eq!(extract_percent(&spans), Some(90.0));
+    }
+
+    #[test]
+    fn extract_percent_falls_to_text_when_no_hint() {
+        let spans = plain("Ctx: 42.5%");
+        assert_eq!(extract_percent(&spans), Some(42.5));
+    }
+
+    #[test]
+    fn threshold_fires_via_percent_hint_alone() {
+        // No % in text, but a hint span pushes the value across the 80%
+        // threshold — the "up to 100%" band picks brightRed.
+        let spec = spec_with_meta(&[("thresholds", "80:red,100:brightRed")]);
+        let mut spans = plain("Ctx: 170k");
+        spans.push(StyledSpan {
+            text: String::new(),
+            metadata_percent: Some(85.0),
+            ..Default::default()
+        });
+        let out = apply(spans, &spec, 0);
+        assert!(matches!(out[0].fg, Color::Named(ref n) if n == "brightRed"));
+    }
+
+    #[test]
+    fn pulse_above_fires_via_percent_hint_alone() {
+        let spec = spec_with_meta(&[("pulseAbove", "80"), ("cycleSeconds", "2")]);
+        let mut spans = plain("Ctx: 170k");
+        spans[0].fg = Color::Named("blue".into());
+        spans.push(StyledSpan {
+            text: String::new(),
+            metadata_percent: Some(85.0),
+            ..Default::default()
+        });
+        let out = apply(spans, &spec, 1_000);
+        assert!(matches!(out[0].fg, Color::Rgb { .. }));
     }
 
     #[test]
