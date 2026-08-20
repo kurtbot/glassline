@@ -4,6 +4,7 @@ members = [
     "crates/glassline-core",
     "crates/glassline-render",
     "crates/glassline-testkit",
+    "crates/glassline-tui",
     "crates/glassline-tui-dsl",
     "crates/glassline-widgets",
 ]
