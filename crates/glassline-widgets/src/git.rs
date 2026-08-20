@@ -206,6 +206,148 @@ fn extract_number(stat: &str, keyword: &str) -> u32 {
     stat[start..end].parse().unwrap_or(0)
 }
 
+/// A parsed `<owner>/<repo>` pair from a git remote URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitRemote {
+    pub owner: String,
+    pub repo: String,
+}
+
+/// Parse a git remote URL into `<owner>/<repo>` components.
+///
+/// Accepts:
+/// - SSH: `git@host:owner/repo(.git)?`
+/// - HTTPS: `https://host/owner/repo(.git)?`
+/// - HTTP: `http://host/owner/repo(.git)?`
+/// - Git protocol: `git://host/owner/repo(.git)?`
+///
+/// Returns `None` for unrecognized shapes rather than guessing — a widget
+/// that can't identify the remote should render empty, not garbage.
+#[must_use]
+pub fn parse_remote_url(url: &str) -> Option<GitRemote> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Strip optional trailing `.git` and slash.
+    let stripped: &str = trimmed
+        .strip_suffix('/')
+        .unwrap_or(trimmed)
+        .strip_suffix(".git")
+        .unwrap_or_else(|| trimmed.strip_suffix('/').unwrap_or(trimmed));
+
+    // SSH form: `git@host:owner/repo`
+    if let Some(rest) = stripped.strip_prefix("git@")
+        && let Some((_host, path)) = rest.split_once(':')
+    {
+        return split_owner_repo(path);
+    }
+    // ssh://user@host/owner/repo
+    for scheme in ["ssh://", "git://", "https://", "http://"] {
+        if let Some(rest) = stripped.strip_prefix(scheme) {
+            let after_host = rest.split_once('/').map(|(_, tail)| tail)?;
+            return split_owner_repo(after_host);
+        }
+    }
+    None
+}
+
+fn split_owner_repo(path: &str) -> Option<GitRemote> {
+    // Path is `owner/repo` — split on last '/' so nested paths like
+    // `group/subgroup/repo` still yield ("group/subgroup", "repo") but we
+    // conservatively require exactly one slash for now (matches TS behavior
+    // which uses github-style `owner/repo`).
+    let path = path.trim_matches('/');
+    let (owner, repo) = path.split_once('/')?;
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    // Reject nested paths (`org/sub/repo`) — TS parity: only two segments.
+    if repo.contains('/') {
+        return None;
+    }
+    Some(GitRemote {
+        owner: owner.to_string(),
+        repo: repo.to_string(),
+    })
+}
+
+/// Fetch a git remote URL via `git remote get-url NAME`. `None` when the
+/// remote doesn't exist, git fails, or the URL parses to an empty string.
+#[must_use]
+pub fn get_git_remote_url(ctx: &RenderContext, remote_name: &str) -> Option<String> {
+    run_git(&["remote", "get-url", remote_name], ctx)
+}
+
+/// Parse the URL of a specific remote (`origin`, `upstream`, ...).
+#[must_use]
+pub fn get_git_remote(ctx: &RenderContext, remote_name: &str) -> Option<GitRemote> {
+    parse_remote_url(&get_git_remote_url(ctx, remote_name)?)
+}
+
+/// Ahead/behind counts vs the upstream tracking branch via
+/// `git rev-list --left-right --count HEAD...@{u}`. Returns `(ahead, behind)`.
+/// `None` when there's no upstream configured or git fails.
+#[must_use]
+pub fn get_git_ahead_behind(ctx: &RenderContext) -> Option<(u32, u32)> {
+    let out = run_git(&["rev-list", "--left-right", "--count", "HEAD...@{u}"], ctx)?;
+    let mut parts = out.split_ascii_whitespace();
+    let ahead = parts.next()?.parse().ok()?;
+    let behind = parts.next()?.parse().ok()?;
+    Some((ahead, behind))
+}
+
+/// Whether `gh` is installed and on PATH. Cached in a `OnceLock` per
+/// process — a widget referencing `gh` should not repeat this probe.
+#[must_use]
+pub fn gh_available() -> bool {
+    *GH_AVAILABLE.get_or_init(|| {
+        Command::new("gh")
+            .arg("--version")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    })
+}
+
+static GH_AVAILABLE: OnceLock<bool> = OnceLock::new();
+
+/// Cached `gh <args>` invocation. Returns `Some(stdout.trim())` on
+/// success, or `None` on failure / missing gh / empty output. Cache is
+/// per-invocation and shares its shape with [`run_git`].
+///
+/// The caller should have already asserted [`gh_available`] — this
+/// function still returns `None` gracefully when `gh` is missing, but
+/// avoiding the spawn saves ~5ms per widget on machines without `gh`.
+pub fn run_gh(args: &[&str], ctx: &RenderContext) -> Option<String> {
+    let cwd = resolve_git_cwd(ctx)?;
+    let key = format!("gh\0{cwd}\0{}", args.join("\0"));
+    let cache = SHELL_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(guard) = cache.lock()
+        && let Some(v) = guard.get(&key)
+    {
+        return v.clone();
+    }
+    let output = Command::new("gh")
+        .args(args)
+        .current_dir(&cwd)
+        .output()
+        .ok();
+    let result = match output {
+        Some(o) if o.status.success() => {
+            let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
+            if text.is_empty() { None } else { Some(text) }
+        }
+        _ => None,
+    };
+    if let Ok(mut g) = cache.lock() {
+        g.insert(key, result.clone());
+    }
+    result
+}
+
+static SHELL_CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+
 /// `git status --porcelain -z` -> flags + per-flag file counts.
 ///
 /// Loops the whole output (no early break) because tier-D widgets need the
@@ -348,5 +490,67 @@ mod tests {
         // function returns cleanly.
         let ctx = ctx_with_cwd("C:\\ThisPathDefinitelyDoesNotExist_glassline");
         let _ = is_inside_git_work_tree(&ctx);
+    }
+
+    #[test]
+    fn parse_remote_url_ssh() {
+        let r = parse_remote_url("git@github.com:kurtbot/glassline.git").unwrap();
+        assert_eq!(r.owner, "kurtbot");
+        assert_eq!(r.repo, "glassline");
+    }
+
+    #[test]
+    fn parse_remote_url_https_with_dot_git() {
+        let r = parse_remote_url("https://github.com/kurtbot/glassline.git").unwrap();
+        assert_eq!(r.owner, "kurtbot");
+        assert_eq!(r.repo, "glassline");
+    }
+
+    #[test]
+    fn parse_remote_url_https_without_dot_git() {
+        let r = parse_remote_url("https://github.com/kurtbot/glassline").unwrap();
+        assert_eq!(r.owner, "kurtbot");
+        assert_eq!(r.repo, "glassline");
+    }
+
+    #[test]
+    fn parse_remote_url_https_trailing_slash() {
+        let r = parse_remote_url("https://github.com/kurtbot/glassline/").unwrap();
+        assert_eq!(r.owner, "kurtbot");
+        assert_eq!(r.repo, "glassline");
+    }
+
+    #[test]
+    fn parse_remote_url_git_protocol() {
+        let r = parse_remote_url("git://github.com/kurtbot/glassline.git").unwrap();
+        assert_eq!(r.owner, "kurtbot");
+        assert_eq!(r.repo, "glassline");
+    }
+
+    #[test]
+    fn parse_remote_url_ssh_scheme() {
+        let r = parse_remote_url("ssh://git@github.com/kurtbot/glassline.git").unwrap();
+        assert_eq!(r.owner, "kurtbot");
+        assert_eq!(r.repo, "glassline");
+    }
+
+    #[test]
+    fn parse_remote_url_rejects_nested_paths() {
+        // GitLab-style `group/subgroup/repo` — we conservatively reject.
+        assert!(parse_remote_url("https://gitlab.com/group/sub/repo.git").is_none());
+    }
+
+    #[test]
+    fn parse_remote_url_rejects_empty() {
+        assert!(parse_remote_url("").is_none());
+        assert!(parse_remote_url("   ").is_none());
+        assert!(parse_remote_url("not-a-url").is_none());
+    }
+
+    #[test]
+    fn parse_remote_url_rejects_partial() {
+        assert!(parse_remote_url("git@github.com:").is_none());
+        assert!(parse_remote_url("git@github.com:onlyowner").is_none());
+        assert!(parse_remote_url("https://github.com/only-owner").is_none());
     }
 }
