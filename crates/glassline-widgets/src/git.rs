@@ -14,7 +14,9 @@ use std::{
     sync::{Mutex, OnceLock},
 };
 
-use glassline_core::render_context::RenderContext;
+use glassline_core::{render_context::RenderContext, settings::WidgetSpec, span::StyledSpan};
+
+use crate::common::styled;
 
 /// Rendered value for a `git diff --shortstat` line: `+insertions -deletions`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -96,6 +98,29 @@ static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new()
 #[must_use]
 pub fn is_inside_git_work_tree(ctx: &RenderContext) -> bool {
     run_git(&["rev-parse", "--is-inside-work-tree"], ctx).as_deref() == Some("true")
+}
+
+/// Shared "not in a git repo" short-circuit used by every git widget.
+///
+/// Returns:
+/// - `Some(styled("(no git)"))` — outside a repo, widget should render the placeholder.
+/// - `Some(Vec::new())` — outside a repo AND `metadata.hideNoGit == "true"`; widget renders nothing.
+/// - `None` — inside a repo; widget should proceed with its own rendering.
+#[must_use]
+pub fn no_git_short_circuit(spec: &WidgetSpec, ctx: &RenderContext) -> Option<Vec<StyledSpan>> {
+    if is_inside_git_work_tree(ctx) {
+        return None;
+    }
+    let hide = spec
+        .metadata
+        .as_ref()
+        .and_then(|m| m.get("hideNoGit"))
+        .is_some_and(|v| v == "true");
+    Some(if hide {
+        Vec::new()
+    } else {
+        styled(spec, "(no git)".into())
+    })
 }
 
 /// Current branch name via `rev-parse --abbrev-ref HEAD`. Returns `None`

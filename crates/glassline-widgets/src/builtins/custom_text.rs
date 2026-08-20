@@ -6,12 +6,13 @@
 //! P1 T-1.8..T-1.22 alongside the other MVP widgets.
 
 use glassline_core::{
-    color::Color,
     render_context::RenderContext,
     settings::WidgetSpec,
     span::StyledSpan,
     widget::{Widget, WidgetRequirements},
 };
+
+use crate::common::styled;
 
 /// Widget factory used by the registry.
 pub fn factory() -> Box<dyn Widget> {
@@ -33,19 +34,7 @@ impl Widget for CustomText {
     fn render(&self, spec: &WidgetSpec, ctx: &RenderContext) -> Vec<StyledSpan> {
         let template = spec.custom_text.as_deref().unwrap_or("");
         let text = expand_placeholders(template, ctx);
-        if text.is_empty() {
-            return Vec::new();
-        }
-        let fg = spec
-            .color
-            .as_deref()
-            .map_or(Color::Default, |c| Color::Named(c.to_string()));
-        vec![StyledSpan {
-            text,
-            fg,
-            bold: spec.bold.unwrap_or(false),
-            ..StyledSpan::default()
-        }]
+        styled(spec, text)
     }
 }
 
@@ -114,7 +103,7 @@ fn expand_placeholders(template: &str, ctx: &RenderContext) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use glassline_core::status_json::StatusJson;
+    use glassline_core::{color::Color, status_json::StatusJson};
 
     fn ctx_with_session(session_id: &str) -> RenderContext {
         RenderContext {

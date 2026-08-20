@@ -1,9 +1,24 @@
 //! Shared helpers used across widgets — token formatting, label wrapping,
 //! context-window derivation.
 
+/// Shared mutex guarding env-var mutation across tests in this crate.
+///
+/// Cargo runs unit tests in parallel by default. Any test that calls
+/// `std::env::set_var` / `remove_var` races other tests that read the
+/// same variable. Tests that touch env state MUST take this lock at the
+/// top:
+///
+/// ```ignore
+/// let _guard = crate::common::TEST_ENV_LOCK.lock().unwrap();
+/// ```
+///
+/// See [[widget_parity_design_v1.1]] §4.11 F3 for the design context.
+#[cfg(test)]
+pub static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 use glassline_core::{
     color::Color,
-    settings::WidgetSpec,
+    settings::{DimSetting, WidgetSpec},
     span::StyledSpan,
     status_json::{ContextWindow, CurrentUsage, StatusJson},
 };
@@ -44,7 +59,12 @@ pub fn labeled_or_raw(spec: &WidgetSpec, label: &str, value: &str) -> String {
     }
 }
 
-/// Build a single styled span honouring `spec.color` and `spec.bold`.
+/// Build a single styled span honouring `spec.color`, `spec.background_color`,
+/// `spec.bold`, and the ANSI-dim variant of `spec.dim` (`DimSetting::Bool(true)`).
+///
+/// `DimSetting::Parens` is a text-wrapping mode, not an ANSI attribute — it
+/// belongs at the pipeline/animate layer and is intentionally NOT applied
+/// here.
 #[must_use]
 pub fn styled(spec: &WidgetSpec, text: String) -> Vec<StyledSpan> {
     if text.is_empty() {
@@ -58,11 +78,13 @@ pub fn styled(spec: &WidgetSpec, text: String) -> Vec<StyledSpan> {
         .background_color
         .as_deref()
         .map_or(Color::Default, |c| Color::Named(c.to_string()));
+    let dim = matches!(spec.dim, Some(DimSetting::Bool(true)));
     vec![StyledSpan {
         text,
         fg,
         bg,
         bold: spec.bold.unwrap_or(false),
+        dim,
         ..StyledSpan::default()
     }]
 }
@@ -172,6 +194,75 @@ fn finite_non_negative(v: Option<f64>) -> Option<f64> {
     v.filter(|x| x.is_finite() && *x >= 0.0)
 }
 
+/// Options for [`format_duration_ms`]. Different widgets want different
+/// tradeoffs — session-clock shows `<1m` because "0m" reads as broken, while
+/// usage-reset timers use `0m` for "resets now". See [[widget_parity_design_v1.1]]
+/// §4.11 F2 for the consolidation rationale.
+#[derive(Debug, Clone, Copy)]
+pub struct DurationFormat {
+    /// `true` → `1h 2m`, `false` → `1hr 2m` (matches TS default).
+    pub compact: bool,
+    /// `true` → split total hours ≥24 into days (`1d 3hr`).
+    pub use_days: bool,
+    /// Sub-minute behavior. `true` → `<1m` (session-clock), `false` → `0m` (usage timer).
+    pub less_than_min: bool,
+}
+
+impl Default for DurationFormat {
+    fn default() -> Self {
+        Self {
+            compact: false,
+            use_days: true,
+            less_than_min: false,
+        }
+    }
+}
+
+/// Format a duration in milliseconds. Port of the union of TS
+/// `formatUsageDuration` (usage-reset timers) and the session-clock
+/// formatter. See [`DurationFormat`] for tradeoffs.
+#[must_use]
+pub fn format_duration_ms(ms: u64, fmt: DurationFormat) -> String {
+    if ms < 60_000 {
+        return if fmt.less_than_min {
+            "<1m".to_string()
+        } else {
+            "0m".to_string()
+        };
+    }
+    let total_minutes = ms / 60_000;
+    let total_hours = total_minutes / 60;
+    let minutes = total_minutes % 60;
+    let (days, hours) = if fmt.use_days {
+        (total_hours / 24, total_hours % 24)
+    } else {
+        (0, total_hours)
+    };
+    let h_label = if fmt.compact { "h" } else { "hr" };
+    let sep = if fmt.compact { "" } else { " " };
+    let mut parts: Vec<String> = Vec::new();
+    if days > 0 {
+        parts.push(format!("{days}d"));
+    }
+    if hours > 0 {
+        parts.push(format!("{hours}{h_label}"));
+    }
+    if minutes > 0 {
+        parts.push(format!("{minutes}m"));
+    }
+    if parts.is_empty() {
+        // Reachable only when ms >= 60_000 but somehow the split zeroed
+        // everything out (e.g. use_days=false + <60min case where total_hours=0).
+        // Fall back to the sub-minute display convention.
+        return if fmt.less_than_min {
+            "<1m".to_string()
+        } else {
+            "0m".to_string()
+        };
+    }
+    parts.join(sep)
+}
+
 /// Default context window size when we can't derive one from Claude Code —
 /// matches TS `MODEL_CONTEXT_DEFAULT_TOKENS`.
 ///
@@ -213,6 +304,45 @@ mod tests {
         assert_eq!(format_tokens(1_500, 0), "2k");
         assert_eq!(format_tokens(999_499, 0), "999k");
         assert_eq!(format_tokens(999_500, 0), "1.0M");
+    }
+
+    #[test]
+    fn styled_applies_dim_bool_true() {
+        let mut spec = WidgetSpec::new("1", "custom-text");
+        spec.dim = Some(DimSetting::Bool(true));
+        let spans = styled(&spec, "hi".into());
+        assert_eq!(spans.len(), 1);
+        assert!(
+            spans[0].dim,
+            "DimSetting::Bool(true) must set StyledSpan.dim"
+        );
+    }
+
+    #[test]
+    fn styled_ignores_dim_parens() {
+        let mut spec = WidgetSpec::new("1", "custom-text");
+        spec.dim = Some(DimSetting::Parens(
+            glassline_core::settings::ParensLiteral::Parens,
+        ));
+        let spans = styled(&spec, "hi".into());
+        // Parens is a text-wrapping mode, not an ANSI attribute; styled()
+        // must NOT set the ANSI dim bit for it.
+        assert!(!spans[0].dim);
+    }
+
+    #[test]
+    fn styled_dim_false_stays_off() {
+        let mut spec = WidgetSpec::new("1", "custom-text");
+        spec.dim = Some(DimSetting::Bool(false));
+        let spans = styled(&spec, "hi".into());
+        assert!(!spans[0].dim);
+    }
+
+    #[test]
+    fn styled_dim_absent_stays_off() {
+        let spec = WidgetSpec::new("1", "custom-text");
+        let spans = styled(&spec, "hi".into());
+        assert!(!spans[0].dim);
     }
 
     #[test]
@@ -268,6 +398,7 @@ mod tests {
 
     #[test]
     fn default_window_size_env_override() {
+        let _guard = TEST_ENV_LOCK.lock().unwrap();
         // Clean state, then set + verify.
         unsafe {
             std::env::remove_var("GLASSLINE_CONTEXT_SIZE_FALLBACK");

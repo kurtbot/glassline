@@ -9,7 +9,7 @@ use glassline_core::{
     widget::{Widget, WidgetRequirements},
 };
 
-use crate::common::{is_raw, styled};
+use crate::common::{DurationFormat, format_duration_ms, is_raw, styled};
 
 pub fn factory() -> Box<dyn Widget> {
     Box::new(SessionClock)
@@ -37,7 +37,7 @@ impl Widget for SessionClock {
             .and_then(|d| d.cost.as_ref())
             .and_then(|c| c.total_duration_ms)
             .filter(|v| v.is_finite() && *v >= 0.0)
-            .map(|ms| format_duration_from_ms(ms as u64));
+            .map(|ms| format_duration_ms(ms as u64, session_clock_fmt()));
 
         // Fall back to the transcript-scan-derived duration (populated by
         // the render binary when SESSION_CLOCK is in the requirements set).
@@ -54,17 +54,14 @@ impl Widget for SessionClock {
     }
 }
 
-fn format_duration_from_ms(ms: u64) -> String {
-    let total_minutes = ms / (1000 * 60);
-    if total_minutes < 1 {
-        return "<1m".to_string();
-    }
-    let hours = total_minutes / 60;
-    let minutes = total_minutes % 60;
-    match (hours, minutes) {
-        (0, m) => format!("{m}m"),
-        (h, 0) => format!("{h}hr"),
-        (h, m) => format!("{h}hr {m}m"),
+/// Session-clock-specific formatter options: `<1m` for sub-minute (never `0m` —
+/// reads as broken), no day split (sessions are typically <24h; if a user does
+/// run past 24h they see `27hr` not `1d 3hr`, matching TS).
+fn session_clock_fmt() -> DurationFormat {
+    DurationFormat {
+        compact: false,
+        use_days: false,
+        less_than_min: true,
     }
 }
 

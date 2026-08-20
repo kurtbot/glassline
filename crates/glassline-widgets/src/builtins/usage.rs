@@ -13,7 +13,7 @@ use glassline_core::{
     widget::{Widget, WidgetRequirements},
 };
 
-use crate::common::{is_raw, styled};
+use crate::common::{DurationFormat, format_duration_ms, is_raw, styled};
 
 // --------- percentage widgets ---------
 
@@ -124,7 +124,7 @@ impl Widget for WeeklyResetTimer {
         let Some(duration_ms) = duration_until_iso_ms(iso) else {
             return Vec::new();
         };
-        let formatted = format_duration_ms(duration_ms, false, true);
+        let formatted = format_duration_ms(duration_ms, DurationFormat::default());
         let text = if is_raw(spec) {
             formatted
         } else {
@@ -166,37 +166,6 @@ fn duration_until_iso_ms(iso: &str) -> Option<u64> {
         return Some(0);
     }
     Some(d.whole_milliseconds().max(0) as u64)
-}
-
-/// Port of TS `formatUsageDuration(ms, compact=false, useDays=true)`.
-/// - `useDays=true` splits >24h into days.
-/// - `compact=false` inserts spaces between parts and uses `hr` for hours.
-fn format_duration_ms(ms: u64, compact: bool, use_days: bool) -> String {
-    let total_minutes = ms / 60_000;
-    let total_hours = total_minutes / 60;
-    let minutes = total_minutes % 60;
-    let (days, hours) = if use_days {
-        (total_hours / 24, total_hours % 24)
-    } else {
-        (0, total_hours)
-    };
-    let h_label = if compact { "h" } else { "hr" };
-    let sep = if compact { "" } else { " " };
-    let mut parts: Vec<String> = Vec::new();
-    if days > 0 {
-        parts.push(format!("{days}d"));
-    }
-    if hours > 0 {
-        parts.push(format!("{hours}{h_label}"));
-    }
-    if minutes > 0 {
-        parts.push(format!("{minutes}m"));
-    }
-    if parts.is_empty() {
-        "0m".to_string()
-    } else {
-        parts.join(sep)
-    }
 }
 
 #[cfg(test)]
@@ -273,30 +242,49 @@ mod tests {
     fn duration_formats_compact_hours_and_minutes() {
         // 6h 42m
         let ms = (6 * 3_600 + 42 * 60) * 1000;
-        assert_eq!(format_duration_ms(ms, false, true), "6hr 42m");
+        assert_eq!(format_duration_ms(ms, DurationFormat::default()), "6hr 42m");
     }
 
     #[test]
     fn duration_uses_days_split() {
-        // 1d 3h
+        // 27h → 1d 3hr
         let ms = (27 * 3_600) * 1000;
-        assert_eq!(format_duration_ms(ms, false, true), "1d 3hr");
+        assert_eq!(format_duration_ms(ms, DurationFormat::default()), "1d 3hr");
     }
 
     #[test]
     fn duration_hours_only_form() {
         // 27h without day split
         let ms = (27 * 3_600) * 1000;
-        assert_eq!(format_duration_ms(ms, false, false), "27hr");
+        assert_eq!(
+            format_duration_ms(
+                ms,
+                DurationFormat {
+                    use_days: false,
+                    ..DurationFormat::default()
+                }
+            ),
+            "27hr"
+        );
     }
 
     #[test]
     fn duration_zero_returns_0m() {
-        assert_eq!(format_duration_ms(0, false, true), "0m");
+        assert_eq!(format_duration_ms(0, DurationFormat::default()), "0m");
     }
 
     #[test]
     fn duration_compact_uses_h() {
-        assert_eq!(format_duration_ms(3_600_000, true, false), "1h");
+        assert_eq!(
+            format_duration_ms(
+                3_600_000,
+                DurationFormat {
+                    compact: true,
+                    use_days: false,
+                    ..DurationFormat::default()
+                }
+            ),
+            "1h"
+        );
     }
 }

@@ -12,7 +12,7 @@ use glassline_core::{
 
 use crate::{
     common::styled,
-    git::{get_git_root, is_inside_git_work_tree},
+    git::{get_git_root, no_git_short_circuit},
 };
 
 pub fn factory() -> Box<dyn Widget> {
@@ -33,17 +33,8 @@ impl Widget for GitRootDir {
     }
 
     fn render(&self, spec: &WidgetSpec, ctx: &RenderContext) -> Vec<StyledSpan> {
-        let hide_no_git = spec
-            .metadata
-            .as_ref()
-            .and_then(|m| m.get("hideNoGit"))
-            .is_some_and(|v| v == "true");
-        if !is_inside_git_work_tree(ctx) {
-            return if hide_no_git {
-                Vec::new()
-            } else {
-                styled(spec, "(no git)".into())
-            };
+        if let Some(early) = no_git_short_circuit(spec, ctx) {
+            return early;
         }
         let Some(root) = get_git_root(ctx) else {
             return Vec::new();

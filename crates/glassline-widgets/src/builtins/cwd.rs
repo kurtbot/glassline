@@ -141,8 +141,15 @@ mod tests {
 
     #[test]
     fn abbreviate_home_prefix() {
+        let _guard = crate::common::TEST_ENV_LOCK.lock().unwrap();
+        // Snapshot + restore so we don't clobber another test's HOME.
+        let saved_home = std::env::var_os("HOME");
+        let saved_userprofile = std::env::var_os("USERPROFILE");
         unsafe {
             std::env::set_var("HOME", "/home/user");
+            // Windows path resolution also consults USERPROFILE; clear it
+            // so this test is deterministic regardless of OS.
+            std::env::remove_var("USERPROFILE");
         }
         let mut spec = WidgetSpec::new("1", "current-working-dir");
         spec.metadata = Some(
@@ -153,7 +160,14 @@ mod tests {
         let spans = CurrentWorkingDir.render(&spec, &ctx_with_cwd("/home/user/proj"));
         assert_eq!(spans[0].text, "~/proj");
         unsafe {
-            std::env::remove_var("HOME");
+            match saved_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            match saved_userprofile {
+                Some(v) => std::env::set_var("USERPROFILE", v),
+                None => std::env::remove_var("USERPROFILE"),
+            }
         }
     }
 }

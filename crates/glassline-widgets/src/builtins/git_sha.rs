@@ -9,7 +9,7 @@ use glassline_core::{
 
 use crate::{
     common::styled,
-    git::{get_git_short_sha, is_inside_git_work_tree},
+    git::{get_git_short_sha, no_git_short_circuit},
 };
 
 pub fn factory() -> Box<dyn Widget> {
@@ -30,20 +30,18 @@ impl Widget for GitSha {
     }
 
     fn render(&self, spec: &WidgetSpec, ctx: &RenderContext) -> Vec<StyledSpan> {
-        let hide_no_git = spec
+        if let Some(early) = no_git_short_circuit(spec, ctx) {
+            return early;
+        }
+        // For the in-repo-but-no-commit case we honor `hideNoGit` too —
+        // the flag semantically covers "git isn't showing anything useful".
+        let hide = spec
             .metadata
             .as_ref()
             .and_then(|m| m.get("hideNoGit"))
             .is_some_and(|v| v == "true");
-        if !is_inside_git_work_tree(ctx) {
-            return if hide_no_git {
-                Vec::new()
-            } else {
-                styled(spec, "(no git)".into())
-            };
-        }
         let text = get_git_short_sha(ctx).unwrap_or_else(|| {
-            if hide_no_git {
+            if hide {
                 String::new()
             } else {
                 "(no commit)".to_string()
