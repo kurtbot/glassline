@@ -13,15 +13,15 @@ use crate::builtins::{
     custom_text, cwd, extra_usage_remaining, extra_usage_used, extra_usage_utilization,
     fable_weekly_usage, flex_separator, free_memory, git_ahead_behind, git_branch, git_changes,
     git_ci_status, git_clean_status, git_conflicts, git_deletions, git_insertions, git_is_fork,
-    git_origin_owner, git_origin_owner_repo, git_origin_repo, git_pr, git_root_dir, git_sha,
-    git_staged, git_staged_files, git_status, git_unstaged, git_unstaged_files, git_untracked,
-    git_untracked_files, git_upstream_owner, git_upstream_owner_repo, git_upstream_repo,
-    git_worktree, git_worktree_branch, git_worktree_mode, git_worktree_name,
-    git_worktree_original_branch, jj_bookmarks, jj_changes, jj_deletions, jj_description,
-    jj_insertions, jj_revision, jj_root_dir, jj_workspace, link, model, output_style,
-    remote_control_status, sandbox_status, separator, session_clock, session_cost, session_name,
-    skills, speed, terminal_width, thinking_effort, tokens_cached, tokens_input, tokens_output,
-    tokens_total, usage, version, vim_mode, voice_status,
+    git_origin_host, git_origin_owner, git_origin_owner_repo, git_origin_repo, git_pr,
+    git_root_dir, git_sha, git_staged, git_staged_files, git_status, git_unstaged,
+    git_unstaged_files, git_untracked, git_untracked_files, git_upstream_owner,
+    git_upstream_owner_repo, git_upstream_repo, git_worktree, git_worktree_branch,
+    git_worktree_mode, git_worktree_name, git_worktree_original_branch, jj_bookmarks, jj_changes,
+    jj_deletions, jj_description, jj_insertions, jj_revision, jj_root_dir, jj_workspace, link,
+    model, output_style, remote_control_status, sandbox_status, separator, session_clock,
+    session_cost, session_name, skills, speed, terminal_width, thinking_effort, tokens_cached,
+    tokens_input, tokens_output, tokens_total, usage, version, vim_mode, voice_status,
 };
 
 /// A zero-arg factory. Widgets are cheap to construct — no shared state.
@@ -79,6 +79,7 @@ pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "git-deletions" => git_deletions::factory,
     "git-insertions" => git_insertions::factory,
     "git-is-fork" => git_is_fork::factory,
+    "git-origin-host" => git_origin_host::factory,
     "git-origin-owner" => git_origin_owner::factory,
     "git-origin-owner-repo" => git_origin_owner_repo::factory,
     "git-origin-repo" => git_origin_repo::factory,
@@ -202,6 +203,13 @@ mod tests {
             let widget = resolve(alias).unwrap();
             assert_eq!(widget.id(), *canonical, "alias {alias} → {canonical}");
         }
+    }
+
+    #[test]
+    fn git_origin_host_registered() {
+        // Net-new widget introduced in issue #4 — no upstream alias.
+        let w = resolve("git-origin-host").expect("git-origin-host missing from registry");
+        assert_eq!(w.id(), "git-origin-host");
     }
 
     #[test]
