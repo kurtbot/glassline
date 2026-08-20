@@ -224,6 +224,14 @@ impl DslApp {
                 self.dirty = true;
                 None
             }
+            Action::Sequence(actions) => {
+                for a in actions {
+                    if let Some(outcome) = self.apply(a) {
+                        return Some(outcome);
+                    }
+                }
+                None
+            }
         }
     }
 

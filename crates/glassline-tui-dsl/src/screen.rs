@@ -53,6 +53,9 @@ pub enum Action {
     /// dirty. Screens use this instead of holding their own Settings
     /// reference so ownership stays with [`crate::app::DslApp`].
     MutateSettings(SettingsMutator),
+    /// Apply a list of actions in order. `Quit` in the middle
+    /// terminates the sequence.
+    Sequence(Vec<Action>),
 }
 
 impl std::fmt::Debug for Action {
@@ -67,6 +70,7 @@ impl std::fmt::Debug for Action {
             Self::Quit { save } => write!(f, "Action::Quit {{ save: {save} }}"),
             Self::Toast(t) => write!(f, "Action::Toast({t:?})"),
             Self::MutateSettings(_) => f.write_str("Action::MutateSettings(<closure>)"),
+            Self::Sequence(v) => write!(f, "Action::Sequence({v:?})"),
         }
     }
 }

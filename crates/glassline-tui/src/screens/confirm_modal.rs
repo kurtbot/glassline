@@ -74,11 +74,13 @@ impl Screen for ConfirmModal {
                     .on_decide
                     .take()
                     .expect("Enter fires the callback at most once");
-                cb(confirmed)
+                // Always pop the modal after the callback fires,
+                // regardless of what the callback returns.
+                Action::Sequence(vec![Action::Pop, cb(confirmed)])
             }
             KeyCode::Esc | KeyCode::Char('q') => {
                 if let Some(cb) = self.on_decide.take() {
-                    cb(false)
+                    Action::Sequence(vec![Action::Pop, cb(false)])
                 } else {
                     Action::Pop
                 }
