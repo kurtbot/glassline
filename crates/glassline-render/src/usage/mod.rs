@@ -19,17 +19,17 @@
 //! `$XDG_CACHE_HOME/glassline/usage.lock` (unix). At most one process
 //! hits `/api/oauth/usage` per `LOCK_MAX_AGE_MS` (30 s). On contention
 //! we return whatever's in the cache — even if stale — rather than
-//! block the render pipeline (design D3). See [[usage_hardening_design_v1.2]] §4.1.
+//! block the render pipeline.
 //!
 //! # Module layout
 //!
 //! - `credentials` — file-based OAuth token resolution + `resolve_access_token`.
 //! - `keychain` — macOS Keychain fallback (`cfg(target_os = "macos")` for
 //!   the `security(1)` shellouts; parser fns compiled cross-platform for
-//!   testability). See [[usage_hardening_design_v1.2]] §4.2.
+//!   testability).
 //! - `http` — the `ureq` call, proxy resolution (`HTTPS_PROXY`/`NO_PROXY`
 //!   with `https://`→`http://` and bare-`host:port` normalization for
-//!   ureq 2.x), and `Retry-After` parsing. See [[usage_hardening_design_v1.2]] §4.3.
+//!   ureq 2.x), and `Retry-After` parsing.
 //! - `cache` — on-disk JSON cache + per-outcome TTL enum.
 //! - `lock` — cross-process file lock + `blocked_until_ms` marker.
 

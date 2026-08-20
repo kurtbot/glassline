@@ -5,7 +5,6 @@
 //! clean AND when `git status` fails. We match that behavior — a git
 //! failure is indistinguishable from a clean tree, which is fine because
 //! neither case has anything actionable to show. See
-//! [[widget_parity_design_v1.1]] §4.11 B3 for parity notes.
 
 use glassline_core::{
     render_context::RenderContext,

@@ -1,7 +1,6 @@
 //! `git-origin-host` — the host portion of the `origin` remote's URL
 //! (`github.com`, `gitlab.com`, `bitbucket.org`, …). Net-new widget with
-//! no upstream ccstatusline counterpart — see
-//! [[statusjson_native_repo_design_v1.0]].
+//! no upstream ccstatusline counterpart.
 //!
 //! Fast path: reads `workspace.repo.host` when Claude Code v2.1+ ships
 //! it. Falls back to parsing the origin URL from `git remote get-url`.

@@ -1,6 +1,5 @@
 //! Micro-cache in front of the render pipeline.
 //!
-//! Design ref: [[render_cache_design_v1.0]].
 //!
 //! Claude Code invokes glassline on every event (debounced to ~300ms) plus
 //! on a user-configured `refreshInterval` (seconds, minimum 1). Doing the

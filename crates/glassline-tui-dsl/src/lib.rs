@@ -2,8 +2,7 @@
 //! layout config editor.
 //!
 //! Screens depend on this crate, never on `ratatui::*` directly, so the
-//! rendering backend stays swappable. See
-//! [[layout_config_editor_design_v1.1]] §4.3.
+//! rendering backend stays swappable without touching downstream code.
 
 pub mod screen;
 pub mod ui;

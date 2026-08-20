@@ -12,7 +12,6 @@
 /// let _guard = crate::common::TEST_ENV_LOCK.lock().unwrap();
 /// ```
 ///
-/// See [[widget_parity_design_v1.1]] §4.11 F3 for the design context.
 #[cfg(test)]
 pub static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
@@ -240,7 +239,7 @@ fn finite_non_negative(v: Option<f64>) -> Option<f64> {
 
 /// Options for [`format_duration_ms`]. Different widgets want different
 /// tradeoffs — session-clock shows `<1m` because "0m" reads as broken, while
-/// usage-reset timers use `0m` for "resets now". See [[widget_parity_design_v1.1]]
+/// usage-reset timers use `0m` for "resets now"
 /// §4.11 F2 for the consolidation rationale and §4.10 for the metadata
 /// knobs that timer widgets expose to `settings.json`.
 #[derive(Debug, Clone, Copy)]

@@ -1,8 +1,6 @@
 //! The [`Screen`] trait every editor screen implements, plus the
 //! [`Action`] enum they return from `on_event` and the [`Outcome`] the
 //! top-level app returns from `run`.
-//!
-//! Design reference: [[layout_config_editor_design_v1.1]] §4.3.
 
 use ratatui::crossterm::event::Event;
 
@@ -42,9 +40,7 @@ pub enum Action {
     Replace(Box<dyn Screen>),
     /// Exit the app. `save = true` means "commit the scratch settings";
     /// `save = false` means "discard".
-    Quit {
-        save: bool,
-    },
+    Quit { save: bool },
     /// Show a floating toast on the next repaint. Non-blocking — the
     /// current screen stays active.
     Toast(String),

@@ -29,9 +29,8 @@ pub type WidgetFactory = fn() -> Box<dyn Widget>;
 
 /// IDs that map to a canonical widget but were renamed / re-prefixed
 /// upstream. Keeping them as registry entries lets a config imported
-/// via `glassline import` (see [[ccstatusline_import_design_v1.0]]) hit
-/// the same factory without the loader having to rewrite the `type`
-/// field. See [[widget_parity_design_v1.5]] §4.23.
+/// via `glassline import` hit the same factory without the loader
+/// having to rewrite the `type` field.
 pub const ALIASES: &[&str] = &[
     "worktree-branch",
     "worktree-mode",
@@ -190,7 +189,7 @@ mod tests {
     fn alias_pairs_match_upstream_intent() {
         // Compile-time-ish sanity check: each alias should route to the
         // widget id documented in the design (see
-        // [[widget_parity_design_v1.5]] §4.23).
+        // (see the ALIASES const above).
         let expected: &[(&str, &str)] = &[
             ("worktree-branch", "git-worktree-branch"),
             ("worktree-mode", "git-worktree-mode"),

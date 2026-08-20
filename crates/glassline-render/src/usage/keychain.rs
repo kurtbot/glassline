@@ -10,8 +10,6 @@
 //! ccstatusline: read the password via `security find-generic-password
 //! -w` (clean stdout) and read the mdat via a separate `security
 //! dump-keychain` call parsed per-block. See
-//! [[usage_hardening_design_v1.2]] §4.2 and T-2.2 of
-//! [[usage_hardening_impl_plan_v1.0]].
 //!
 //! Parser fns (`split_on_keychain_boundary`, `parse_mdat_from_block`,
 //! `normalize_security_timedate`, `decode_hex_ascii`) are compiled on

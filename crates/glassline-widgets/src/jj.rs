@@ -4,7 +4,7 @@
 //! widgets can use to bail cleanly outside a jj workspace.
 //!
 //! Every `jj log` invocation MUST include `--no-graph` — see
-//! [[widget_parity_design_v1.1]] §12-C2. Without it jj decorates output
+//! Without it jj decorates output
 //! with graph glyphs (`@ │ ○ ◆`) that break parsers. All queries target
 //! `-r @` (current change) as the convention.
 
