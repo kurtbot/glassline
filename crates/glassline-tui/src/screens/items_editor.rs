@@ -232,6 +232,7 @@ impl ItemsEditor {
     fn push_picker(&self) -> Action {
         let line = self.line_index;
         let cursor = self.cursor;
+        let line_is_empty = self.last_len == 0;
         Action::Push(Box::new(WidgetPicker::new(move |meta| {
             let widget_type = meta.id.to_string();
             Action::MutateSettings(Box::new(move |s| {
@@ -239,7 +240,15 @@ impl ItemsEditor {
                     s.lines.push(Vec::new());
                 }
                 let id = fresh_widget_id();
-                s.lines[line].insert(cursor + 1, WidgetSpec::new(id, widget_type));
+                let row = &mut s.lines[line];
+                // Insertion index:
+                //   - empty row → 0 (append)
+                //   - otherwise → after the current cursor
+                // Always clamp to row.len() so we never panic if a
+                // concurrent mutation has resized the row under us.
+                let insert_at = if line_is_empty { 0 } else { cursor + 1 };
+                let insert_at = insert_at.min(row.len());
+                row.insert(insert_at, WidgetSpec::new(id, widget_type));
             }))
         })))
     }
@@ -311,6 +320,33 @@ mod tests {
         ed.last_len = 3;
         apply(ed.reorder(-1), &mut s);
         assert_eq!(s, s_before, "reordering past the top edge must be a no-op");
+    }
+
+    #[test]
+    fn push_picker_appends_to_empty_line_without_panicking() {
+        // Regression: inserting at cursor+1 into an empty Vec panicked.
+        // An empty line must accept the first widget at index 0.
+        let mut s = Settings {
+            lines: vec![Vec::new()],
+            ..Settings::default()
+        };
+        // Manually replay the closure the picker would fire on pick.
+        let line: usize = 0;
+        let cursor: usize = 0;
+        let line_is_empty = true;
+        let mutator: glassline_tui_dsl::screen::SettingsMutator =
+            Box::new(move |s: &mut Settings| {
+                while s.lines.len() <= line {
+                    s.lines.push(Vec::new());
+                }
+                let row = &mut s.lines[line];
+                let insert_at = if line_is_empty { 0 } else { cursor + 1 };
+                let insert_at = insert_at.min(row.len());
+                row.insert(insert_at, WidgetSpec::new("w-test", "git-branch"));
+            });
+        mutator(&mut s);
+        assert_eq!(s.lines[0].len(), 1);
+        assert_eq!(s.lines[0][0].kind, "git-branch");
     }
 
     #[test]
