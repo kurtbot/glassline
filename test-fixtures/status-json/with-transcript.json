@@ -1,0 +1,32 @@
+{
+    "hook_event_name": "Statusline",
+    "session_id": "01H8W5NRA8D3S7Z6F2GYH9XAB3",
+    "transcript_path": "/home/u/.claude/sessions/abc/transcript.jsonl",
+    "cwd": "/home/u/projects/glassline",
+    "model": {
+        "id": "claude-opus-4-7",
+        "display_name": "Opus 4.7"
+    },
+    "workspace": {
+        "current_dir": "/home/u/projects/glassline",
+        "project_dir": "/home/u/projects/glassline"
+    },
+    "cost": {
+        "total_cost_usd": 2.35,
+        "total_duration_ms": 128000,
+        "total_lines_added": 421,
+        "total_lines_removed": 87
+    },
+    "context_window": {
+        "context_window_size": 200000,
+        "total_input_tokens": 128500,
+        "total_output_tokens": 24000,
+        "current_usage": {
+            "input_tokens": 128500,
+            "output_tokens": 24000,
+            "cache_read_input_tokens": 96000,
+            "cache_creation_input_tokens": 12000
+        },
+        "used_percentage": 76.25
+    }
+}

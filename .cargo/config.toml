@@ -1,0 +1,6 @@
+[build]
+# `-D warnings` is applied by CI (see `.github/workflows/ci.yml`) rather than
+# universally so local dev keeps a normal warning-yellow feedback loop.
+
+[alias]
+ci-test = "nextest run --workspace"

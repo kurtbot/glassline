@@ -1,0 +1,19 @@
+{
+    "hook_event_name": "Statusline",
+    "session_id": "01H8W5NRA8D3S7Z6F2GYH9XAB3",
+    "cwd": "/home/u/proj",
+    "model": "claude-opus-4-7",
+    "context_window": {
+        "context_window_size": 200000,
+        "total_input_tokens": 12000,
+        "total_output_tokens": 3000,
+        "used_percentage": 7.5
+    },
+    "cost": {
+        "total_cost_usd": 0.12,
+        "total_duration_ms": 22000
+    },
+    "vim": {
+        "mode": "normal"
+    }
+}

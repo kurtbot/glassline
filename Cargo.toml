@@ -1,0 +1,74 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/glassline-core",
+    "crates/glassline-render",
+    "crates/glassline-testkit",
+    "crates/glassline-widgets",
+]
+
+[workspace.package]
+version = "0.1.1"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+authors = ["Kurt Milan"]
+repository = "https://github.com/kurtbot/glassline"
+homepage = "https://github.com/kurtbot/glassline"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+
+[workspace.lints.clippy]
+# Keep the lint bar reasonable for early phases; ratchet up to `pedantic`
+# during P5 (design §5.3 release polish). For now, catch obvious mistakes.
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+
+[workspace.dependencies]
+# Runtime deps (shared)
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-appender = "0.2"
+phf = { version = "0.11", features = ["macros"] }
+directories = "5"
+tempfile = "3"
+fs2 = "0.4"
+notify = "6"
+ureq = { version = "2", default-features = false, features = ["tls"] }
+wait-timeout = "0.2"
+time = { version = "0.3", features = ["parsing", "macros"] }
+
+# Test-only
+insta = { version = "1", features = ["yaml", "json", "redactions"] }
+assert_cmd = "2"
+predicates = "3"
+proptest = "1"
+criterion = { version = "0.5", features = ["html_reports"] }
+mockito = "1"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+overflow-checks = false
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.bench]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+debug = true # keep symbols for profiling
+strip = false

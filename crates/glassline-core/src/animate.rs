@@ -1,0 +1,518 @@
+//! Widget color animation + transformation effects.
+//!
+//! Runs at the pipeline layer, AFTER a widget renders its spans. Reads the
+//! widget's `spec.metadata` for opt-in effects:
+//!
+//! | metadata key      | value                              | effect                              |
+//! |-------------------|------------------------------------|-------------------------------------|
+//! | `animate`         | `rainbow` \| `pulse` \| `sweep`    | time-based color cycle              |
+//! | `cycleSeconds`    | `"30"`                             | cycle length (default 60)           |
+//! | `gradientStart`   | `"#rrggbb"`                        | start color for static gradient     |
+//! | `gradientEnd`     | `"#rrggbb"`                        | end color for static gradient       |
+//! | `thresholds`      | `"50:green,80:yellow,100:red"`     | value-driven fg (traffic-light)     |
+//!
+//! Precedence: `thresholds` wins (if the widget's rendered text has a
+//! numeric %), then `animate`, then static gradient, then no change.
+//!
+//! Because Claude Code refreshes the statusline at its `refreshInterval`
+//! (typically 10s), "animation" is really "one frame per refresh". The
+//! cycle position is a deterministic function of wall-clock time, so
+//! two invocations in the same second produce identical output — no
+//! flicker.
+
+use std::collections::BTreeMap;
+
+use crate::{color::Color, settings::WidgetSpec, span::StyledSpan};
+
+/// Apply per-widget animation / gradient / threshold effects to a run of
+/// spans returned by [`Widget::render`](crate::widget::Widget::render).
+///
+/// Returns the (possibly re-styled) spans. When `spec.metadata` doesn't
+/// declare any effect, this is a no-op and returns the input unchanged.
+#[must_use]
+pub fn apply(spans: Vec<StyledSpan>, spec: &WidgetSpec, now_ms: u64) -> Vec<StyledSpan> {
+    let Some(meta) = spec.metadata.as_ref() else {
+        return spans;
+    };
+    if meta.is_empty() {
+        return spans;
+    }
+
+    // 1. Value-driven thresholds (traffic-light). Extracted from the
+    //    rendered text via `\d+(\.\d+)?%` so no Widget-trait change
+    //    is required.
+    if let Some(threshold_str) = meta.get("thresholds")
+        && let Some(value) = extract_percent(&spans)
+        && let Some(color) = pick_threshold_color(threshold_str, value, now_ms)
+    {
+        return apply_flat_fg(spans, color);
+    }
+
+    // 2. Time-based animations.
+    let cycle_s = meta
+        .get("cycleSeconds")
+        .and_then(|s| s.parse::<u64>().ok())
+        .filter(|s| *s > 0)
+        .unwrap_or(60);
+    let phase = if cycle_s == 0 {
+        0.0
+    } else {
+        ((now_ms / 1000) % cycle_s) as f64 / cycle_s as f64
+    };
+
+    match meta.get("animate").map(String::as_str) {
+        Some("rainbow") => return apply_flat_rgb(spans, hsl_to_rgb(phase, 1.0, 0.5)),
+        Some("pulse") => {
+            // Sinusoidal brightness on the widget's existing fg (or on
+            // white if no explicit color); wraps 0 -> 1 -> 0 per cycle.
+            let brightness = 0.35 + 0.65 * (std::f64::consts::PI * phase).sin();
+            return apply_pulse(spans, brightness);
+        }
+        Some("sweep") => {
+            if let Some((start, end)) = read_gradient_stops(meta) {
+                return apply_sweep_gradient(spans, start, end, phase);
+            }
+        }
+        _ => {}
+    }
+
+    // 3. Static per-character gradient (no animation).
+    if let Some((start, end)) = read_gradient_stops(meta) {
+        return apply_char_gradient(spans, start, end);
+    }
+
+    spans
+}
+
+// -------- helpers --------
+
+fn apply_flat_fg(spans: Vec<StyledSpan>, fg: Color) -> Vec<StyledSpan> {
+    spans
+        .into_iter()
+        .map(|s| StyledSpan {
+            fg: fg.clone(),
+            ..s
+        })
+        .collect()
+}
+
+fn apply_flat_rgb(spans: Vec<StyledSpan>, rgb: (u8, u8, u8)) -> Vec<StyledSpan> {
+    apply_flat_fg(
+        spans,
+        Color::Rgb {
+            r: rgb.0,
+            g: rgb.1,
+            b: rgb.2,
+        },
+    )
+}
+
+/// Pulse existing fg by `brightness` (0.0..=1.0). Named / default fg
+/// spans are treated as white before scaling — chalk-parity would need
+/// per-name RGB values which we skip in the MVP.
+fn apply_pulse(spans: Vec<StyledSpan>, brightness: f64) -> Vec<StyledSpan> {
+    let clamp = |v: f64| -> u8 { v.clamp(0.0, 255.0).round() as u8 };
+    spans
+        .into_iter()
+        .map(|s| {
+            let base = match &s.fg {
+                Color::Rgb { r, g, b } => (*r, *g, *b),
+                _ => (255, 255, 255),
+            };
+            let scaled = (
+                clamp(base.0 as f64 * brightness),
+                clamp(base.1 as f64 * brightness),
+                clamp(base.2 as f64 * brightness),
+            );
+            StyledSpan {
+                fg: Color::Rgb {
+                    r: scaled.0,
+                    g: scaled.1,
+                    b: scaled.2,
+                },
+                ..s
+            }
+        })
+        .collect()
+}
+
+/// Character-by-character linear gradient across the whole widget's text.
+fn apply_char_gradient(
+    spans: Vec<StyledSpan>,
+    start: (u8, u8, u8),
+    end: (u8, u8, u8),
+) -> Vec<StyledSpan> {
+    let total_chars: usize = spans.iter().map(|s| s.text.chars().count()).sum();
+    if total_chars <= 1 {
+        return apply_flat_rgb(spans, start);
+    }
+    let mut out: Vec<StyledSpan> = Vec::with_capacity(total_chars);
+    let mut idx = 0;
+    for span in spans {
+        for c in span.text.chars() {
+            let t = idx as f64 / (total_chars - 1) as f64;
+            let rgb = lerp_rgb(start, end, t);
+            out.push(StyledSpan {
+                text: c.to_string(),
+                fg: Color::Rgb {
+                    r: rgb.0,
+                    g: rgb.1,
+                    b: rgb.2,
+                },
+                bg: span.bg.clone(),
+                bold: span.bold,
+                dim: span.dim,
+                italic: span.italic,
+                underline: span.underline,
+                gradient_hint: true,
+            });
+            idx += 1;
+        }
+    }
+    out
+}
+
+/// Same as [`apply_char_gradient`] but the mapping is offset by `phase`
+/// (0.0..=1.0), so successive refreshes shift the color across the text.
+fn apply_sweep_gradient(
+    spans: Vec<StyledSpan>,
+    start: (u8, u8, u8),
+    end: (u8, u8, u8),
+    phase: f64,
+) -> Vec<StyledSpan> {
+    let total_chars: usize = spans.iter().map(|s| s.text.chars().count()).sum();
+    if total_chars == 0 {
+        return spans;
+    }
+    let mut out: Vec<StyledSpan> = Vec::with_capacity(total_chars);
+    let mut idx = 0;
+    for span in spans {
+        for c in span.text.chars() {
+            let raw = idx as f64 / total_chars as f64 + phase;
+            // Triangle wave: 0 -> 1 -> 0 across `raw`'s fractional part.
+            let frac = raw - raw.floor();
+            let t = if frac < 0.5 {
+                frac * 2.0
+            } else {
+                (1.0 - frac) * 2.0
+            };
+            let rgb = lerp_rgb(start, end, t);
+            out.push(StyledSpan {
+                text: c.to_string(),
+                fg: Color::Rgb {
+                    r: rgb.0,
+                    g: rgb.1,
+                    b: rgb.2,
+                },
+                bg: span.bg.clone(),
+                bold: span.bold,
+                dim: span.dim,
+                italic: span.italic,
+                underline: span.underline,
+                gradient_hint: true,
+            });
+            idx += 1;
+        }
+    }
+    out
+}
+
+type Rgb = (u8, u8, u8);
+
+fn read_gradient_stops(meta: &BTreeMap<String, String>) -> Option<(Rgb, Rgb)> {
+    let start = parse_hex(meta.get("gradientStart")?)?;
+    let end = parse_hex(meta.get("gradientEnd")?)?;
+    Some((start, end))
+}
+
+/// Pick the fg color for a threshold entry.
+///
+/// Format: `"cap:color[,cap:color]..."` where cap is a number and color is
+/// either:
+///   - a named color (`green`, `yellow`, `brightRed`, ...)
+///   - a hex code (`#rrggbb`)
+///   - a `|`-separated cycle (`#8b0000|#ff0000`) that alternates one
+///     color per second driven by `now_ms`. Useful for a "flashing"
+///     effect at the top threshold band.
+fn pick_threshold_color(spec: &str, value: f64, now_ms: u64) -> Option<Color> {
+    for entry in spec.split(',') {
+        let mut it = entry.trim().splitn(2, ':');
+        let cap = it.next()?.trim().parse::<f64>().ok()?;
+        let color_spec = it.next()?.trim();
+        if value <= cap {
+            let alternatives: Vec<&str> = color_spec.split('|').collect();
+            if alternatives.is_empty() {
+                return None;
+            }
+            let idx = ((now_ms / 1000) as usize) % alternatives.len();
+            return parse_color_spec(alternatives[idx]);
+        }
+    }
+    None
+}
+
+/// Parse a single color spec: `"green"` -> [`Color::Named`],
+/// `"#rrggbb"` -> [`Color::Rgb`].
+fn parse_color_spec(s: &str) -> Option<Color> {
+    let s = s.trim();
+    if let Some(hex) = s.strip_prefix('#') {
+        if hex.len() != 6 {
+            return None;
+        }
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        return Some(Color::Rgb { r, g, b });
+    }
+    Some(Color::Named(s.to_string()))
+}
+
+fn extract_percent(spans: &[StyledSpan]) -> Option<f64> {
+    let text: String = spans.iter().map(|s| s.text.as_str()).collect();
+    // Walk through and find the first `<digits>[.<digits>]%` pattern.
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if !bytes[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < bytes.len() && (bytes[i].is_ascii_digit() || bytes[i] == b'.') {
+            i += 1;
+        }
+        if i < bytes.len() && bytes[i] == b'%' {
+            return text[start..i].parse().ok();
+        }
+    }
+    None
+}
+
+fn parse_hex(s: &str) -> Option<(u8, u8, u8)> {
+    let hex = s.strip_prefix('#').unwrap_or(s);
+    if hex.len() != 6 {
+        return None;
+    }
+    Some((
+        u8::from_str_radix(&hex[0..2], 16).ok()?,
+        u8::from_str_radix(&hex[2..4], 16).ok()?,
+        u8::from_str_radix(&hex[4..6], 16).ok()?,
+    ))
+}
+
+/// Linear interpolation between two RGB triples. `t` is clamped to
+/// `0.0..=1.0`.
+fn lerp_rgb(a: (u8, u8, u8), b: (u8, u8, u8), t: f64) -> (u8, u8, u8) {
+    let t = t.clamp(0.0, 1.0);
+    let lerp = |x: u8, y: u8| -> u8 {
+        let xf = x as f64;
+        let yf = y as f64;
+        (xf + (yf - xf) * t).round().clamp(0.0, 255.0) as u8
+    };
+    (lerp(a.0, b.0), lerp(a.1, b.1), lerp(a.2, b.2))
+}
+
+/// HSL (h in 0..=1) to RGB. Saturation + luminance in 0..=1.
+#[must_use]
+pub fn hsl_to_rgb(h: f64, s: f64, l: f64) -> (u8, u8, u8) {
+    let h = ((h % 1.0) + 1.0) % 1.0;
+    let s = s.clamp(0.0, 1.0);
+    let l = l.clamp(0.0, 1.0);
+    if s == 0.0 {
+        let v = (l * 255.0).round() as u8;
+        return (v, v, v);
+    }
+    let q = if l < 0.5 {
+        l * (1.0 + s)
+    } else {
+        l + s - l * s
+    };
+    let p = 2.0 * l - q;
+    let hue_to_rgb = |p: f64, q: f64, t: f64| -> f64 {
+        let t = if t < 0.0 {
+            t + 1.0
+        } else if t > 1.0 {
+            t - 1.0
+        } else {
+            t
+        };
+        if t < 1.0 / 6.0 {
+            p + (q - p) * 6.0 * t
+        } else if t < 0.5 {
+            q
+        } else if t < 2.0 / 3.0 {
+            p + (q - p) * (2.0 / 3.0 - t) * 6.0
+        } else {
+            p
+        }
+    };
+    let r = hue_to_rgb(p, q, h + 1.0 / 3.0);
+    let g = hue_to_rgb(p, q, h);
+    let b = hue_to_rgb(p, q, h - 1.0 / 3.0);
+    (
+        (r * 255.0).round() as u8,
+        (g * 255.0).round() as u8,
+        (b * 255.0).round() as u8,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::WidgetSpec;
+
+    fn plain(text: &str) -> Vec<StyledSpan> {
+        vec![StyledSpan {
+            text: text.into(),
+            ..Default::default()
+        }]
+    }
+
+    fn spec_with_meta(pairs: &[(&str, &str)]) -> WidgetSpec {
+        let mut s = WidgetSpec::new("1", "test");
+        s.metadata = Some(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        );
+        s
+    }
+
+    #[test]
+    fn no_metadata_is_passthrough() {
+        let spans = plain("hello");
+        let spec = WidgetSpec::new("1", "test");
+        let out = apply(spans.clone(), &spec, 0);
+        assert_eq!(out, spans);
+    }
+
+    #[test]
+    fn rainbow_produces_rgb_span() {
+        let spec = spec_with_meta(&[("animate", "rainbow"), ("cycleSeconds", "6")]);
+        let out = apply(plain("hi"), &spec, 0);
+        assert!(matches!(out[0].fg, Color::Rgb { .. }));
+    }
+
+    #[test]
+    fn rainbow_cycles_through_time() {
+        let spec = spec_with_meta(&[("animate", "rainbow"), ("cycleSeconds", "60")]);
+        let a = apply(plain("x"), &spec, 0);
+        let b = apply(plain("x"), &spec, 30_000);
+        assert_ne!(a[0].fg, b[0].fg);
+    }
+
+    #[test]
+    fn pulse_scales_existing_rgb() {
+        let mut spans = plain("x");
+        spans[0].fg = Color::Rgb {
+            r: 100,
+            g: 100,
+            b: 100,
+        };
+        // Phase = 0.5 => sin(pi/2) = 1 => brightness = 1.0.
+        let spec = spec_with_meta(&[("animate", "pulse"), ("cycleSeconds", "2")]);
+        let out = apply(spans, &spec, 1_000);
+        match out[0].fg {
+            Color::Rgb { r, .. } => assert!((r as i32 - 100).abs() < 5),
+            _ => panic!("expected Rgb"),
+        }
+    }
+
+    #[test]
+    fn static_gradient_splits_per_char() {
+        let spec = spec_with_meta(&[("gradientStart", "#000000"), ("gradientEnd", "#ff0000")]);
+        let out = apply(plain("ab"), &spec, 0);
+        assert_eq!(out.len(), 2);
+        assert!(matches!(out[0].fg, Color::Rgb { r: 0, .. }));
+        assert!(matches!(out[1].fg, Color::Rgb { r: 255, .. }));
+    }
+
+    #[test]
+    fn sweep_gradient_shifts_with_phase() {
+        let spec = spec_with_meta(&[
+            ("animate", "sweep"),
+            ("cycleSeconds", "10"),
+            ("gradientStart", "#00ff00"),
+            ("gradientEnd", "#0000ff"),
+        ]);
+        let a = apply(plain("hello"), &spec, 0);
+        let b = apply(plain("hello"), &spec, 5_000);
+        assert_ne!(a[0].fg, b[0].fg);
+    }
+
+    #[test]
+    fn threshold_picks_correct_color() {
+        let spec = spec_with_meta(&[("thresholds", "50:green,80:yellow,100:red")]);
+        let low = apply(plain("Session: 25%"), &spec, 0);
+        assert!(matches!(low[0].fg, Color::Named(ref n) if n == "green"));
+        let mid = apply(plain("Session: 65%"), &spec, 0);
+        assert!(matches!(mid[0].fg, Color::Named(ref n) if n == "yellow"));
+        let hi = apply(plain("Session: 95%"), &spec, 0);
+        assert!(matches!(hi[0].fg, Color::Named(ref n) if n == "red"));
+    }
+
+    #[test]
+    fn threshold_accepts_hex_colors() {
+        let spec = spec_with_meta(&[("thresholds", "75:#ff8c00,100:#8b0000")]);
+        let orange = apply(plain("Ctx: 60%"), &spec, 0);
+        assert!(matches!(
+            orange[0].fg,
+            Color::Rgb {
+                r: 0xff,
+                g: 0x8c,
+                b: 0x00
+            }
+        ));
+    }
+
+    #[test]
+    fn threshold_flash_alternates_between_colors() {
+        let spec = spec_with_meta(&[("thresholds", "100:#8b0000|#ff0000")]);
+        // now_ms=0 -> second 0 (even) -> first color = #8b0000
+        let a = apply(plain("Ctx: 95%"), &spec, 0);
+        assert!(matches!(
+            a[0].fg,
+            Color::Rgb {
+                r: 0x8b,
+                g: 0x00,
+                b: 0x00
+            }
+        ));
+        // now_ms=1000 -> second 1 (odd) -> second color = #ff0000
+        let b = apply(plain("Ctx: 95%"), &spec, 1_000);
+        assert!(matches!(
+            b[0].fg,
+            Color::Rgb {
+                r: 0xff,
+                g: 0x00,
+                b: 0x00
+            }
+        ));
+    }
+
+    #[test]
+    fn threshold_needs_percent_in_text() {
+        let spec = spec_with_meta(&[("thresholds", "50:green,100:red")]);
+        let out = apply(plain("no percent here"), &spec, 0);
+        // No `%` -> effect skipped -> passthrough.
+        assert!(matches!(out[0].fg, Color::Default));
+    }
+
+    #[test]
+    fn hsl_to_rgb_endpoints() {
+        // red at hue 0
+        assert_eq!(hsl_to_rgb(0.0, 1.0, 0.5), (255, 0, 0));
+        // green at hue 1/3
+        assert_eq!(hsl_to_rgb(1.0 / 3.0, 1.0, 0.5), (0, 255, 0));
+        // blue at hue 2/3
+        assert_eq!(hsl_to_rgb(2.0 / 3.0, 1.0, 0.5), (0, 0, 255));
+    }
+
+    #[test]
+    fn parse_hex_forms() {
+        assert_eq!(parse_hex("#0a80ff"), Some((0x0a, 0x80, 0xff)));
+        assert_eq!(parse_hex("0a80ff"), Some((0x0a, 0x80, 0xff)));
+        assert_eq!(parse_hex("#zz"), None);
+    }
+}

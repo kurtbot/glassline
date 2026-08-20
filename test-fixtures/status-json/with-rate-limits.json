@@ -1,0 +1,24 @@
+{
+    "hook_event_name": "Statusline",
+    "session_id": "01H8W5NRA8D3S7Z6F2GYH9XAB3",
+    "cwd": "/tmp/proj",
+    "model": "claude-opus-4-7",
+    "effort": {
+        "level": "medium"
+    },
+    "rate_limits": {
+        "five_hour": {
+            "used_percentage": "42.5",
+            "resets_at": "1755561600"
+        },
+        "seven_day": {
+            "used_percentage": 12,
+            "resets_at": 1755993600
+        },
+        "seven_day_sonnet": {
+            "used_percentage": 8,
+            "resets_at": 1755993600
+        },
+        "seven_day_opus": null
+    }
+}

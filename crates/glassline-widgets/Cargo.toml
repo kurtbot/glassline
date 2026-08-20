@@ -1,0 +1,22 @@
+[package]
+name = "glassline-widgets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Built-in widget implementations for glassline."
+
+[lints]
+workspace = true
+
+[dependencies]
+glassline-core = { path = "../glassline-core" }
+phf = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

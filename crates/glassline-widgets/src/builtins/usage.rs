@@ -1,0 +1,302 @@
+//! Anthropic OAuth usage widgets: `session-usage`, `weekly-usage`,
+//! `weekly-sonnet-usage`, `weekly-opus-usage`, `weekly-reset-timer`.
+//!
+//! MVP scope: labeled percentage (`Session: 45%`) or, for the timer,
+//! the compact time-until-reset (`Weekly reset: 6h 42m`). The full TS
+//! feature set (progress bar / slider / inverted / cursor / timezone /
+//! locale / weekday / hours-only) lands with T-1.7f — usable core first.
+
+use glassline_core::{
+    render_context::{RenderContext, RenderUsageData, UsageError},
+    settings::WidgetSpec,
+    span::StyledSpan,
+    widget::{Widget, WidgetRequirements},
+};
+
+use crate::common::{is_raw, styled};
+
+// --------- percentage widgets ---------
+
+#[derive(Copy, Clone)]
+enum PercentKind {
+    Session,
+    Weekly,
+    WeeklySonnet,
+    WeeklyOpus,
+}
+
+impl PercentKind {
+    fn id(self) -> &'static str {
+        match self {
+            PercentKind::Session => "session-usage",
+            PercentKind::Weekly => "weekly-usage",
+            PercentKind::WeeklySonnet => "weekly-sonnet-usage",
+            PercentKind::WeeklyOpus => "weekly-opus-usage",
+        }
+    }
+    fn label(self) -> &'static str {
+        match self {
+            PercentKind::Session => "Session: ",
+            PercentKind::Weekly => "Weekly: ",
+            PercentKind::WeeklySonnet => "Weekly Sonnet: ",
+            PercentKind::WeeklyOpus => "Weekly Opus: ",
+        }
+    }
+    fn value(self, u: &RenderUsageData) -> Option<f64> {
+        match self {
+            PercentKind::Session => u.session_usage,
+            PercentKind::Weekly => u.weekly_usage,
+            PercentKind::WeeklySonnet => u.weekly_sonnet_usage,
+            PercentKind::WeeklyOpus => u.weekly_opus_usage,
+        }
+    }
+}
+
+pub struct UsagePercent(PercentKind);
+
+impl Widget for UsagePercent {
+    fn id(&self) -> &'static str {
+        self.0.id()
+    }
+    fn requirements(&self) -> WidgetRequirements {
+        WidgetRequirements::USAGE
+    }
+    fn default_color(&self) -> Option<&'static str> {
+        Some("brightBlue")
+    }
+    fn render(&self, spec: &WidgetSpec, ctx: &RenderContext) -> Vec<StyledSpan> {
+        let Some(usage) = ctx.usage_data.as_ref() else {
+            return Vec::new();
+        };
+        if let Some(err) = usage.error {
+            return styled(spec, error_text(self.0.label(), err, is_raw(spec)));
+        }
+        let Some(pct) = self.0.value(usage) else {
+            return Vec::new();
+        };
+        let formatted = format!("{pct:.0}%");
+        let text = if is_raw(spec) {
+            formatted
+        } else {
+            format!("{}{}", self.0.label(), formatted)
+        };
+        styled(spec, text)
+    }
+}
+
+pub fn session_usage_factory() -> Box<dyn Widget> {
+    Box::new(UsagePercent(PercentKind::Session))
+}
+pub fn weekly_usage_factory() -> Box<dyn Widget> {
+    Box::new(UsagePercent(PercentKind::Weekly))
+}
+pub fn weekly_sonnet_usage_factory() -> Box<dyn Widget> {
+    Box::new(UsagePercent(PercentKind::WeeklySonnet))
+}
+pub fn weekly_opus_usage_factory() -> Box<dyn Widget> {
+    Box::new(UsagePercent(PercentKind::WeeklyOpus))
+}
+
+// --------- reset timer ---------
+
+pub struct WeeklyResetTimer;
+
+impl Widget for WeeklyResetTimer {
+    fn id(&self) -> &'static str {
+        "weekly-reset-timer"
+    }
+    fn requirements(&self) -> WidgetRequirements {
+        WidgetRequirements::USAGE
+    }
+    fn default_color(&self) -> Option<&'static str> {
+        Some("brightBlue")
+    }
+    fn render(&self, spec: &WidgetSpec, ctx: &RenderContext) -> Vec<StyledSpan> {
+        let Some(usage) = ctx.usage_data.as_ref() else {
+            return Vec::new();
+        };
+        if let Some(err) = usage.error {
+            return styled(spec, error_text("Weekly reset: ", err, is_raw(spec)));
+        }
+        let Some(iso) = usage.weekly_reset_at.as_deref() else {
+            return Vec::new();
+        };
+        let Some(duration_ms) = duration_until_iso_ms(iso) else {
+            return Vec::new();
+        };
+        let formatted = format_duration_ms(duration_ms, false, true);
+        let text = if is_raw(spec) {
+            formatted
+        } else {
+            format!("Weekly reset: {formatted}")
+        };
+        styled(spec, text)
+    }
+}
+
+pub fn weekly_reset_timer_factory() -> Box<dyn Widget> {
+    Box::new(WeeklyResetTimer)
+}
+
+// --------- helpers ---------
+
+fn error_text(label: &str, err: UsageError, raw: bool) -> String {
+    let msg = match err {
+        UsageError::NoCredentials => "[No credentials]",
+        UsageError::Timeout => "[Timeout]",
+        UsageError::RateLimited => "[Rate limited]",
+        UsageError::ApiError => "[API Error]",
+        UsageError::ParseError => "[Parse Error]",
+    };
+    if raw {
+        msg.to_string()
+    } else {
+        format!("{label}{msg}")
+    }
+}
+
+/// Milliseconds until an RFC3339 timestamp elapses; `None` on parse failure
+/// or past-timestamp.
+fn duration_until_iso_ms(iso: &str) -> Option<u64> {
+    let ts =
+        time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).ok()?;
+    let now = time::OffsetDateTime::now_utc();
+    let d = ts - now;
+    if d.is_negative() {
+        return Some(0);
+    }
+    Some(d.whole_milliseconds().max(0) as u64)
+}
+
+/// Port of TS `formatUsageDuration(ms, compact=false, useDays=true)`.
+/// - `useDays=true` splits >24h into days.
+/// - `compact=false` inserts spaces between parts and uses `hr` for hours.
+fn format_duration_ms(ms: u64, compact: bool, use_days: bool) -> String {
+    let total_minutes = ms / 60_000;
+    let total_hours = total_minutes / 60;
+    let minutes = total_minutes % 60;
+    let (days, hours) = if use_days {
+        (total_hours / 24, total_hours % 24)
+    } else {
+        (0, total_hours)
+    };
+    let h_label = if compact { "h" } else { "hr" };
+    let sep = if compact { "" } else { " " };
+    let mut parts: Vec<String> = Vec::new();
+    if days > 0 {
+        parts.push(format!("{days}d"));
+    }
+    if hours > 0 {
+        parts.push(format!("{hours}{h_label}"));
+    }
+    if minutes > 0 {
+        parts.push(format!("{minutes}m"));
+    }
+    if parts.is_empty() {
+        "0m".to_string()
+    } else {
+        parts.join(sep)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx(usage: RenderUsageData) -> RenderContext {
+        RenderContext {
+            usage_data: Some(usage),
+            ..RenderContext::default()
+        }
+    }
+
+    #[test]
+    fn session_usage_labels_percent() {
+        let spans = session_usage_factory().render(
+            &WidgetSpec::new("1", "session-usage"),
+            &ctx(RenderUsageData {
+                session_usage: Some(45.0),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(spans[0].text, "Session: 45%");
+    }
+
+    #[test]
+    fn weekly_usage_labels_percent() {
+        let spans = weekly_usage_factory().render(
+            &WidgetSpec::new("1", "weekly-usage"),
+            &ctx(RenderUsageData {
+                weekly_usage: Some(55.0),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(spans[0].text, "Weekly: 55%");
+    }
+
+    #[test]
+    fn raw_drops_label() {
+        let mut spec = WidgetSpec::new("1", "weekly-usage");
+        spec.raw_value = Some(true);
+        let spans = weekly_usage_factory().render(
+            &spec,
+            &ctx(RenderUsageData {
+                weekly_usage: Some(42.0),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(spans[0].text, "42%");
+    }
+
+    #[test]
+    fn error_replaces_percent_with_bracket_msg() {
+        let spans = session_usage_factory().render(
+            &WidgetSpec::new("1", "session-usage"),
+            &ctx(RenderUsageData {
+                error: Some(UsageError::NoCredentials),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(spans[0].text, "Session: [No credentials]");
+    }
+
+    #[test]
+    fn empty_when_no_usage_data() {
+        let spans = session_usage_factory().render(
+            &WidgetSpec::new("1", "session-usage"),
+            &RenderContext::default(),
+        );
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn duration_formats_compact_hours_and_minutes() {
+        // 6h 42m
+        let ms = (6 * 3_600 + 42 * 60) * 1000;
+        assert_eq!(format_duration_ms(ms, false, true), "6hr 42m");
+    }
+
+    #[test]
+    fn duration_uses_days_split() {
+        // 1d 3h
+        let ms = (27 * 3_600) * 1000;
+        assert_eq!(format_duration_ms(ms, false, true), "1d 3hr");
+    }
+
+    #[test]
+    fn duration_hours_only_form() {
+        // 27h without day split
+        let ms = (27 * 3_600) * 1000;
+        assert_eq!(format_duration_ms(ms, false, false), "27hr");
+    }
+
+    #[test]
+    fn duration_zero_returns_0m() {
+        assert_eq!(format_duration_ms(0, false, true), "0m");
+    }
+
+    #[test]
+    fn duration_compact_uses_h() {
+        assert_eq!(format_duration_ms(3_600_000, true, false), "1h");
+    }
+}

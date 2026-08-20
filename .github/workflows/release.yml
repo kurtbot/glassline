@@ -1,0 +1,77 @@
+name: Release
+
+# Tag-triggered release build.
+#
+# Push a tag like `v0.1.1` to create a GitHub Release with prebuilt
+# `glassline` binaries for the four supported targets, plus LICENSE
+# and README bundled in each archive.
+#
+# Local flow:
+#   git tag v0.1.1 -m "0.1.1"
+#   git push origin v0.1.1
+#
+# The `create-release` job runs first (once) and drafts the Release.
+# `upload-assets` fans out across OSes, builds `--release`, and
+# uploads a `.tar.gz` (unix) or `.zip` (windows) per target.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  create-release:
+    name: Draft GitHub Release
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/create-gh-release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Do NOT auto-close: leave the release as draft so the maintainer
+          # can add notes before hitting Publish. Remove this line to
+          # publish immediately.
+          draft: true
+
+  upload-assets:
+    name: Build ${{ matrix.target }}
+    needs: create-release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-24.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-24.04
+          - target: x86_64-apple-darwin
+            os: macos-14
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          # `glassline` is the bin target declared in
+          # crates/glassline-render/Cargo.toml — the action resolves it
+          # against the workspace.
+          bin: glassline
+          target: ${{ matrix.target }}
+          # Bundle both licenses + attribution alongside the binary.
+          # LICENSE-UPSTREAM ships the ccstatusline © 2025 Matthew Breedlove
+          # MIT notice per that license's redistribution requirement.
+          include: LICENSE,LICENSE-UPSTREAM,README.md
+          # Archive naming: glassline-<target>.<ext>
+          archive: $bin-$target
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,18 @@
+/target
+**/*.rs.bk
+Cargo.lock.old
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Insta pending snapshots
+**/*.snap.new
+
+# Local test outputs
+/tmp/
+/test-output/
