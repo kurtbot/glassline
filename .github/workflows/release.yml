@@ -2,17 +2,18 @@ name: Release
 
 # Tag-triggered release build.
 #
-# Push a tag like `v0.1.1` to create a GitHub Release with prebuilt
-# `glassline` binaries for the four supported targets, plus LICENSE
-# and README bundled in each archive.
+# Push a tag like `v0.5.1` to:
+#   1. Draft a GitHub Release (create-release).
+#   2. Build glassline for 5 targets and attach archives (upload-assets).
+#   3. Compute SHA256SUMS.txt, attach it to the Release, and auto-commit
+#      the updated Homebrew Formula/glassline.rb back to main (finalize).
 #
 # Local flow:
-#   git tag v0.1.1 -m "0.1.1"
-#   git push origin v0.1.1
+#   git tag v0.5.1 -m "0.5.1"
+#   git push origin v0.5.1
 #
-# The `create-release` job runs first (once) and drafts the Release.
-# `upload-assets` fans out across OSes, builds `--release`, and
-# uploads a `.tar.gz` (unix) or `.zip` (windows) per target.
+# The finalize commit message includes `[skip ci]` so it doesn't
+# re-trigger the CI workflow.
 
 on:
   push:
@@ -21,6 +22,10 @@ on:
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -34,9 +39,6 @@ jobs:
       - uses: taiki-e/create-gh-release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          # Do NOT auto-close: leave the release as draft so the maintainer
-          # can add notes before hitting Publish. Remove this line to
-          # publish immediately.
           draft: true
 
   upload-assets:
@@ -63,15 +65,117 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          # `glassline` is the bin target declared in
-          # crates/glassline-render/Cargo.toml — the action resolves it
-          # against the workspace.
           bin: glassline
           target: ${{ matrix.target }}
-          # Bundle both licenses + attribution alongside the binary.
-          # LICENSE-UPSTREAM ships the ccstatusline © 2025 Matthew Breedlove
-          # MIT notice per that license's redistribution requirement.
           include: LICENSE,LICENSE-UPSTREAM,README.md
-          # Archive naming: glassline-<target>.<ext>
           archive: $bin-$target
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  finalize:
+    name: Checksums + Homebrew formula
+    needs: upload-assets
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout main (with write token)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Extract version from tag
+        id: ver
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download all release archives
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p /tmp/archives
+          cd /tmp/archives
+          gh release download "${{ steps.ver.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'glassline-*.tar.gz' \
+            --pattern 'glassline-*.zip'
+          ls -la
+
+      - name: Compute SHA256SUMS.txt
+        run: |
+          cd /tmp/archives
+          sha256sum glassline-*.tar.gz glassline-*.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Upload SHA256SUMS.txt to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ steps.ver.outputs.tag }}" \
+            /tmp/archives/SHA256SUMS.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+      - name: Update Homebrew formula
+        run: |
+          version="${{ steps.ver.outputs.version }}"
+          # Extract per-target SHA256s.
+          sha_mac_arm=$(grep '  glassline-aarch64-apple-darwin\.tar\.gz$' /tmp/archives/SHA256SUMS.txt | awk '{print $1}')
+          sha_mac_x64=$(grep '  glassline-x86_64-apple-darwin\.tar\.gz$'   /tmp/archives/SHA256SUMS.txt | awk '{print $1}')
+          sha_lin_arm=$(grep '  glassline-aarch64-unknown-linux-gnu\.tar\.gz$' /tmp/archives/SHA256SUMS.txt | awk '{print $1}')
+          sha_lin_x64=$(grep '  glassline-x86_64-unknown-linux-gnu\.tar\.gz$'   /tmp/archives/SHA256SUMS.txt | awk '{print $1}')
+
+          for s in "$sha_mac_arm" "$sha_mac_x64" "$sha_lin_arm" "$sha_lin_x64"; do
+            if [ -z "$s" ]; then
+              echo "missing SHA256 line — SHA256SUMS.txt contents:"
+              cat /tmp/archives/SHA256SUMS.txt
+              exit 1
+            fi
+          done
+
+          # Rewrite version + download URL versions + placeholders.
+          # The formula is regular text; sed handles it fine.
+          sed -i \
+            -e "s|version \".*\"|version \"${version}\"|" \
+            -e "s|/download/v[0-9]\+\.[0-9]\+\.[0-9]\+/|/download/v${version}/|g" \
+            Formula/glassline.rb
+
+          # Substitute SHA256 placeholders. If the formula was already
+          # updated on a previous release, replace whatever value is
+          # currently between the sha256 quotes for that target's block.
+          python3 - <<PY
+          import re, pathlib
+          path = pathlib.Path("Formula/glassline.rb")
+          text = path.read_text()
+
+          def swap(block_pattern, new_sha):
+              # Find the block, then within it replace the sha256 "..." line.
+              m = re.search(block_pattern, text, re.DOTALL)
+              if not m:
+                  raise SystemExit(f"couldn't locate block matching {block_pattern[:80]}...")
+              block = m.group(0)
+              new_block = re.sub(r'sha256 "[^"]*"', f'sha256 "{new_sha}"', block, count=1)
+              return text.replace(block, new_block, 1)
+
+          text = swap(r'on_macos.*?on_arm.*?end', "${sha_mac_arm}")
+          text = swap(r'on_macos.*?on_intel.*?end', "${sha_mac_x64}")
+          text = swap(r'on_linux.*?on_arm.*?end', "${sha_lin_arm}")
+          text = swap(r'on_linux.*?on_intel.*?end', "${sha_lin_x64}")
+
+          path.write_text(text)
+          PY
+
+          cat Formula/glassline.rb
+
+      - name: Commit + push formula update
+        run: |
+          git config user.name  "kurtbot-release"
+          git config user.email "kurtbot@users.noreply.github.com"
+          if git diff --quiet Formula/glassline.rb; then
+            echo "no changes to formula — nothing to commit"
+            exit 0
+          fi
+          git add Formula/glassline.rb
+          git commit -m "chore(release): update Homebrew formula for ${{ steps.ver.outputs.tag }} [skip ci]"
+          git push origin HEAD:main
