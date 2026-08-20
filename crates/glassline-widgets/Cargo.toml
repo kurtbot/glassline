@@ -16,7 +16,15 @@ glassline-core = { path = "../glassline-core" }
 phf = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sysinfo = { workspace = true, optional = true }
 time = { workspace = true }
+
+[features]
+default = ["sysinfo-widgets"]
+# Enables the `free-memory` widget. Opt out with
+# `--no-default-features` to save ~500KB in the release binary and drop
+# the sysinfo dep.
+sysinfo-widgets = ["dep:sysinfo"]
 
 [dev-dependencies]
 insta = { workspace = true }

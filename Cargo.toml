@@ -41,6 +41,7 @@ directories = "5"
 tempfile = "3"
 fs2 = "0.4"
 notify = "6"
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 ureq = { version = "2", default-features = false, features = ["tls"] }
 wait-timeout = "0.2"
 time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
