@@ -9,6 +9,7 @@
 #![cfg_attr(test, allow(unsafe_code))]
 
 pub mod builtins;
+pub mod claude_settings;
 pub mod common;
 pub mod git;
 pub mod jj;

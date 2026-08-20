@@ -154,12 +154,14 @@ fn run_render(args: &[String]) -> ExitCode {
     let transcript_bits = WidgetRequirements::TRANSCRIPT
         | WidgetRequirements::COMPACTION
         | WidgetRequirements::SESSION_CLOCK
-        | WidgetRequirements::SPEED;
+        | WidgetRequirements::SPEED
+        | WidgetRequirements::CACHE;
     if let Some(transcript_path) = payload.transcript_path.as_deref()
         && (requirements.contains(WidgetRequirements::TRANSCRIPT)
             || requirements.contains(WidgetRequirements::COMPACTION)
             || requirements.contains(WidgetRequirements::SESSION_CLOCK)
-            || requirements.contains(WidgetRequirements::SPEED))
+            || requirements.contains(WidgetRequirements::SPEED)
+            || requirements.contains(WidgetRequirements::CACHE))
     {
         let path = std::path::Path::new(transcript_path);
         match transcript::scan(path, requirements & transcript_bits) {
@@ -181,6 +183,10 @@ fn run_render(args: &[String]) -> ExitCode {
                 ctx.compaction_data = Some(scan.compaction);
                 ctx.session_duration = scan.session_duration;
                 ctx.speed_metrics = Some(scan.speed);
+                ctx.cache_timer = Some(glassline_core::render_context::CacheTimerState {
+                    working: scan.cache_working,
+                    last_touch_ms: scan.cache_last_touch_ms,
+                });
             }
             Err(e) => {
                 debug_log(debug_enabled, "transcript-error", &e.to_string());

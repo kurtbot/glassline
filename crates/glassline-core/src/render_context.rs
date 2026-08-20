@@ -26,6 +26,13 @@ pub struct RenderContext {
     pub block_metrics: Option<BlockMetrics>,
     pub skills_metrics: Option<SkillsMetrics>,
     pub compaction_data: Option<CompactionData>,
+    /// Prompt-cache TTL bookkeeping populated by the transcript scanner.
+    /// `working = true` when a turn is currently in flight (last main-chain
+    /// entry is a user row); `last_touch_ms` is the unix-epoch-ms of the
+    /// newest main-chain assistant entry that read or wrote the cache.
+    /// Consumed by the `cache-timer` widget; `None` when the scanner
+    /// hasn't run or the transcript is empty.
+    pub cache_timer: Option<CacheTimerState>,
     /// Most recent `<local-command-stdout>Set effort level to X` marker
     /// found by the transcript scanner. `None` when the scanner isn't
     /// wired to look for it yet (Tier J follow-up). Widgets use this
@@ -46,6 +53,19 @@ pub struct RenderContext {
     /// successive refreshes produce successive frames. `0` in the default
     /// context, which effectively pins to unix epoch — fine for unit tests.
     pub now_ms: u64,
+}
+
+/// Prompt-cache countdown state for `cache-timer`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CacheTimerState {
+    /// `true` when the newest main-chain (non-sidechain) entry is a user
+    /// row — a turn is being processed and the prompt cache is being
+    /// refreshed. In that state `cache-timer` renders HOT and ignores
+    /// `last_touch_ms`.
+    pub working: bool,
+    /// Unix-epoch milliseconds of the newest main-chain assistant entry
+    /// with cache activity. `None` when no such entry exists.
+    pub last_touch_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]

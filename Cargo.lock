@@ -279,6 +279,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sysinfo",
+ "tempfile",
  "time",
  "wait-timeout",
 ]
