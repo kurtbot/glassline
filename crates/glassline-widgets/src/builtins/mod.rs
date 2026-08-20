@@ -7,6 +7,7 @@ pub mod cache_hit_rate;
 pub mod cache_read;
 pub mod cache_timer;
 pub mod cache_write;
+pub mod claude_account_email;
 pub mod claude_session_id;
 pub mod compaction_counter;
 pub mod context_bar;

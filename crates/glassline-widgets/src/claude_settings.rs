@@ -38,6 +38,43 @@ pub fn claude_user_dir() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".claude"))
 }
 
+/// Resolve the path to `~/.claude.json` — Claude Code's top-level user
+/// config, distinct from the layered `.claude/settings.json` stack. Holds
+/// account metadata like `oauthAccount.emailAddress` (read by
+/// `claude-account-email`).
+///
+/// `$CLAUDE_CONFIG_DIR` overrides the default location if set to a valid
+/// directory; the file itself is always named `.claude.json`.
+#[must_use]
+pub fn claude_json_path() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("CLAUDE_CONFIG_DIR") {
+        let p = PathBuf::from(dir);
+        if p.is_dir() {
+            return Some(p.join(".claude.json"));
+        }
+    }
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".claude.json"))
+}
+
+/// Read `oauthAccount.emailAddress` from `~/.claude.json`. Returns `None`
+/// on missing file, malformed JSON, missing field, or empty string.
+#[must_use]
+pub fn read_oauth_account_email() -> Option<String> {
+    let path = claude_json_path()?;
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let v: Value = serde_json::from_str(&raw).ok()?;
+    let email = v
+        .get("oauthAccount")?
+        .get("emailAddress")?
+        .as_str()?
+        .trim();
+    if email.is_empty() {
+        return None;
+    }
+    Some(email.to_string())
+}
+
 /// Pick the working directory to root project-local settings reads in.
 ///
 /// Priority (matches upstream `resolveClaudeConfigCwd`):
@@ -324,5 +361,66 @@ mod tests {
         assert!(!LayeredBool::DefaultFalse.enabled());
         assert!(LayeredBool::Explicit(true).enabled());
         assert!(!LayeredBool::Explicit(false).enabled());
+    }
+
+    #[test]
+    fn oauth_email_read_from_claude_json() {
+        let _g = TEST_ENV_LOCK.lock().unwrap();
+        let td = tmp("email");
+        // Point CLAUDE_CONFIG_DIR at the temp dir; helper writes
+        // .claude.json into that dir when the env var is a valid path.
+        std::fs::write(
+            td.path().join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"user@example.com"}}"#,
+        )
+        .unwrap();
+        set_user_dir(td.path());
+
+        assert_eq!(
+            read_oauth_account_email(),
+            Some("user@example.com".to_string())
+        );
+        unset_user_dir();
+    }
+
+    #[test]
+    fn oauth_email_none_when_field_missing() {
+        let _g = TEST_ENV_LOCK.lock().unwrap();
+        let td = tmp("email-missing");
+        std::fs::write(
+            td.path().join(".claude.json"),
+            r#"{"other":"key"}"#,
+        )
+        .unwrap();
+        set_user_dir(td.path());
+
+        assert_eq!(read_oauth_account_email(), None);
+        unset_user_dir();
+    }
+
+    #[test]
+    fn oauth_email_none_when_empty_string() {
+        let _g = TEST_ENV_LOCK.lock().unwrap();
+        let td = tmp("email-empty");
+        std::fs::write(
+            td.path().join(".claude.json"),
+            r#"{"oauthAccount":{"emailAddress":"   "}}"#,
+        )
+        .unwrap();
+        set_user_dir(td.path());
+
+        assert_eq!(read_oauth_account_email(), None);
+        unset_user_dir();
+    }
+
+    #[test]
+    fn oauth_email_none_when_malformed_json() {
+        let _g = TEST_ENV_LOCK.lock().unwrap();
+        let td = tmp("email-bad");
+        std::fs::write(td.path().join(".claude.json"), "{not json").unwrap();
+        set_user_dir(td.path());
+
+        assert_eq!(read_oauth_account_email(), None);
+        unset_user_dir();
     }
 }
