@@ -51,7 +51,11 @@ struct DemoScreen {
     show_modal: bool,
     show_preview: bool,
     modal_result: Option<String>,
+    modal_selected: usize,
+    modal_last_choice: Option<String>,
 }
+
+const MODAL_BUTTON_COUNT: usize = 2;
 
 impl DemoScreen {
     fn new() -> Self {
@@ -73,6 +77,8 @@ impl DemoScreen {
             show_modal: false,
             show_preview: true,
             modal_result: None,
+            modal_selected: 0,
+            modal_last_choice: None,
         }
     }
 }
@@ -83,14 +89,18 @@ impl Screen for DemoScreen {
     }
 
     fn keybindings(&self) -> &[(&'static str, &'static str)] {
-        &[
-            ("↑/↓", "Nav"),
-            ("/", "Filter"),
-            ("Enter", "Confirm"),
-            ("t", "Toast"),
-            ("p", "Toggle preview"),
-            ("q", "Quit"),
-        ]
+        if self.show_modal {
+            &[("←/→", "Button"), ("Enter", "Activate"), ("Esc", "Cancel")]
+        } else {
+            &[
+                ("↑/↓", "Nav"),
+                ("/", "Filter"),
+                ("Enter", "Confirm"),
+                ("t", "Toast"),
+                ("p", "Toggle preview"),
+                ("q", "Quit"),
+            ]
+        }
     }
 
     fn render(&mut self, ui: &mut Ui) {
@@ -108,12 +118,17 @@ impl Screen for DemoScreen {
 
         // Title panel
         Panel::new(self.title()).render(top, ui.frame, |inner, frame| {
+            let last_choice_line = self
+                .modal_last_choice
+                .as_deref()
+                .map(|c| format!("  last modal choice: {c}"))
+                .unwrap_or_else(|| "  press ↑/↓, /, Enter, t, p, or q".to_string());
             let hint = if self.filter_focused {
-                "  filter focused — type to narrow, Esc to leave"
+                "  filter focused — type to narrow, Esc to leave".to_string()
             } else if self.show_modal {
-                "  modal open — Enter/Esc to close"
+                "  modal open — ←/→ select, Enter activate, Esc cancel".to_string()
             } else {
-                "  press ↑/↓, /, Enter, t, p, or q"
+                last_choice_line
             };
             frame.render_widget(ratatui::widgets::Paragraph::new(hint), inner);
         });
@@ -163,18 +178,38 @@ impl Screen for DemoScreen {
             let btns = [Button::new("OK"), Button::new("Cancel")];
             let msg = self.modal_result.as_deref().unwrap_or("Confirm selection?");
             Modal::new("Confirm", msg, &btns)
+                .with_selected(self.modal_selected)
                 .with_size(60, 40)
                 .render(area, ui.frame);
         }
     }
 
     fn on_event(&mut self, ev: Event) -> Action {
-        // Modal has focus while open — Esc / Enter dismisses.
+        // Modal has focus while open — ←/→ moves between buttons,
+        // Enter activates the highlighted one, Esc cancels.
         if self.show_modal {
-            if let Event::Key(k) = ev
-                && matches!(k.code, KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q'))
-            {
-                self.show_modal = false;
+            if let Event::Key(k) = ev {
+                match k.code {
+                    KeyCode::Left => {
+                        self.modal_selected = self.modal_selected.saturating_sub(1);
+                    }
+                    KeyCode::Right => {
+                        self.modal_selected = (self.modal_selected + 1).min(MODAL_BUTTON_COUNT - 1);
+                    }
+                    KeyCode::Enter => {
+                        let choice = match self.modal_selected {
+                            0 => "OK",
+                            _ => "Cancel",
+                        };
+                        self.modal_last_choice = Some(choice.to_string());
+                        self.show_modal = false;
+                    }
+                    KeyCode::Esc | KeyCode::Char('q') => {
+                        self.modal_last_choice = Some("Cancel (esc)".to_string());
+                        self.show_modal = false;
+                    }
+                    _ => {}
+                }
             }
             return Action::None;
         }
@@ -215,6 +250,7 @@ impl Screen for DemoScreen {
             KeyCode::Enter => {
                 let sel = self.list.selected_item(|s| (*s).to_string()).copied();
                 self.modal_result = sel.map(|s| format!("Selected: {s}"));
+                self.modal_selected = 0;
                 self.show_modal = true;
                 Action::None
             }
