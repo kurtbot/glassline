@@ -11,6 +11,7 @@ pub mod panel;
 pub mod preview;
 pub mod screen;
 pub mod text_input;
+pub mod toast;
 pub mod ui;
 
 pub use app::{DslApp, DslError};
@@ -20,4 +21,5 @@ pub use panel::{BorderStyle, Panel};
 pub use preview::{Preview, strip_ansi};
 pub use screen::{Action, Outcome, Screen};
 pub use text_input::TextInput;
+pub use toast::Toast;
 pub use ui::Ui;

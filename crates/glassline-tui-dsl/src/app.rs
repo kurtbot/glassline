@@ -13,6 +13,7 @@ use thiserror::Error;
 use glassline_core::settings::Settings;
 
 use crate::screen::{Action, Outcome, Screen};
+use crate::toast::Toast;
 use crate::ui::Ui;
 
 /// Errors DslApp surfaces to its caller. Terminal I/O and event polling
@@ -40,7 +41,7 @@ pub struct DslApp {
     scratch: Settings,
     dirty: bool,
     committed_path: PathBuf,
-    pending_toast: Option<String>,
+    pending_toast: Option<Toast>,
 }
 
 impl DslApp {
@@ -145,12 +146,23 @@ impl DslApp {
         B: Backend,
         B::Error: std::error::Error + Send + Sync + 'static,
     {
+        // Drop expired toasts before drawing so we don't paint a
+        // stale message this frame.
+        if let Some(t) = &self.pending_toast
+            && t.is_expired()
+        {
+            self.pending_toast = None;
+        }
         if let Some(top) = self.screens.last_mut() {
             let scratch = &self.scratch;
+            let toast = self.pending_toast.as_ref();
             terminal
                 .draw(|frame| {
                     let mut ui = Ui::new(frame, scratch);
                     top.render(&mut ui);
+                    if let Some(t) = toast {
+                        t.render(frame.area(), frame);
+                    }
                 })
                 .map_err(|e| DslError::Backend(Box::new(e)))?;
         }
@@ -195,7 +207,7 @@ impl DslApp {
                 Outcome::Discarded
             }),
             Action::Toast(text) => {
-                self.pending_toast = Some(text);
+                self.pending_toast = Some(Toast::new(text));
                 None
             }
         }
@@ -207,10 +219,10 @@ impl DslApp {
         self.dirty = true;
     }
 
-    /// Clear the pending toast (called by the app after painting).
-    /// Returns the toast text if one was queued.
+    /// Pull out the pending toast text, if any. Test entry point —
+    /// production code lets `draw` auto-drop expired toasts.
     pub fn take_toast(&mut self) -> Option<String> {
-        self.pending_toast.take()
+        self.pending_toast.take().map(|t| t.text().to_string())
     }
 }
 
