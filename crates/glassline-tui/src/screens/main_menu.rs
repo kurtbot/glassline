@@ -201,7 +201,7 @@ impl Screen for MainMenu {
 
 fn dispatch(action: MenuAction) -> Action {
     match action {
-        MenuAction::EditLines => Action::Push(Box::new(LineListEditor)),
+        MenuAction::EditLines => Action::Push(Box::new(LineListEditor::default())),
         MenuAction::Save => Action::Toast("Save is wired in P5.".into()),
         MenuAction::Quit => Action::Quit { save: false },
         MenuAction::Powerline => Action::Push(Box::new(Placeholder::new(

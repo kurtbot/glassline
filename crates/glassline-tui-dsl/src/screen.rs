@@ -4,7 +4,12 @@
 
 use ratatui::crossterm::event::Event;
 
+use glassline_core::settings::Settings;
+
 use crate::ui::Ui;
+
+/// A boxed one-shot mutation applied to the app's scratch [`Settings`].
+pub type SettingsMutator = Box<dyn FnOnce(&mut Settings) + 'static>;
 
 /// Everything an editor screen implements. Screens are heap-boxed and
 /// stacked inside [`crate::app::DslApp`]; only the top of the stack
@@ -44,6 +49,10 @@ pub enum Action {
     /// Show a floating toast on the next repaint. Non-blocking — the
     /// current screen stays active.
     Toast(String),
+    /// Apply a mutation to the shared scratch [`Settings`]. Marks
+    /// dirty. Screens use this instead of holding their own Settings
+    /// reference so ownership stays with [`crate::app::DslApp`].
+    MutateSettings(SettingsMutator),
 }
 
 impl std::fmt::Debug for Action {
@@ -57,6 +66,7 @@ impl std::fmt::Debug for Action {
             Self::Replace(s) => write!(f, "Action::Replace({:?})", s.title()),
             Self::Quit { save } => write!(f, "Action::Quit {{ save: {save} }}"),
             Self::Toast(t) => write!(f, "Action::Toast({t:?})"),
+            Self::MutateSettings(_) => f.write_str("Action::MutateSettings(<closure>)"),
         }
     }
 }

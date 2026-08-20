@@ -219,6 +219,11 @@ impl DslApp {
                 self.pending_toast = Some(Toast::new(text));
                 None
             }
+            Action::MutateSettings(mutator) => {
+                mutator(&mut self.scratch);
+                self.dirty = true;
+                None
+            }
         }
     }
 
