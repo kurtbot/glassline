@@ -80,3 +80,4 @@ pub mod usage;
 pub mod sandbox_status;
 pub mod version;
 pub mod vim_mode;
+pub mod voice_status;

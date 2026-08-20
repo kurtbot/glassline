@@ -21,7 +21,7 @@ use crate::builtins::{
     jj_deletions, jj_description, jj_insertions, jj_revision, jj_root_dir, jj_workspace, link,
     model, output_style, sandbox_status, separator, session_clock, session_cost, session_name,
     skills, speed, terminal_width, thinking_effort, tokens_cached, tokens_input, tokens_output,
-    tokens_total, usage, version, vim_mode,
+    tokens_total, usage, version, vim_mode, voice_status,
 };
 
 /// A zero-arg factory. Widgets are cheap to construct — no shared state.
@@ -111,6 +111,7 @@ pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "total-speed" => speed::total_factory,
     "version" => version::factory,
     "vim-mode" => vim_mode::factory,
+    "voice-status" => voice_status::factory,
     "weekly-opus-usage" => usage::weekly_opus_usage_factory,
     "weekly-reset-timer" => usage::weekly_reset_timer_factory,
     "weekly-sonnet-usage" => usage::weekly_sonnet_usage_factory,
