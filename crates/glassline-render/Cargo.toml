@@ -7,6 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 description = "Hot-path binary for glassline — reads a StatusJSON payload on stdin and writes an ANSI status line to stdout."
+publish = false
 default-run = "glassline"
 
 [[bin]]
