@@ -4,6 +4,9 @@
 //! Screens depend on this crate, never on `ratatui::*` directly, so the
 //! rendering backend stays swappable. See
 //! [[layout_config_editor_design_v1.1]] §4.3.
-//!
-//! **Status:** P1 scaffold (T1.1) — module tree lands empty; primitives
-//! wire up in T1.2-T1.12.
+
+pub mod screen;
+pub mod ui;
+
+pub use screen::{Action, Outcome, Screen};
+pub use ui::Ui;
