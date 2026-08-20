@@ -4,7 +4,10 @@
 //! can wire it up. Real screens land in P3.
 
 fn main() {
-    eprintln!("glassline-tui {} — under construction", env!("CARGO_PKG_VERSION"));
+    eprintln!(
+        "glassline-tui {} — under construction",
+        env!("CARGO_PKG_VERSION")
+    );
     eprintln!(
         "The interactive TUI editor is under development. Configure via \
          %APPDATA%/glassline/settings.json (or ~/.config/glassline/settings.json) for now."
