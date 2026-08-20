@@ -69,6 +69,60 @@ pub enum Color {
     Rgb { r: u8, g: u8, b: u8 },
 }
 
+/// Normalise a chalk color name to the canonical `kebab-case` form.
+///
+/// Chalk configs vary on bright-variant naming — `brightRed` (camelCase) is
+/// as common as `bright-red` (kebab-case). Both should parse. Returns the
+/// lowercase kebab-case spelling that lookup tables key on.
+#[must_use]
+pub fn normalise_name(name: &str) -> String {
+    let mut out = String::with_capacity(name.len() + 2);
+    for (i, ch) in name.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if i != 0 {
+                out.push('-');
+            }
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+/// Resolve a chalk-named color to an RGB triple.
+///
+/// Values match the VS Code integrated-terminal default palette — the
+/// runtime Claude Code renders in — so a `Color::Named("blue")` pulses
+/// the same blue the user sees statically. Any name outside the 16-color
+/// space (plus `gray` / `grey` synonyms) returns `None`; callers fall back
+/// to their own default (typically white, per animate.rs's `apply_pulse`).
+///
+/// Accepts both camelCase (`brightBlue`) and kebab-case (`bright-blue`) via
+/// [`normalise_name`].
+#[must_use]
+pub fn named_to_rgb(name: &str) -> Option<(u8, u8, u8)> {
+    match normalise_name(name).as_str() {
+        "black" => Some((0, 0, 0)),
+        "red" => Some((205, 49, 49)),
+        "green" => Some((13, 188, 121)),
+        "yellow" => Some((229, 229, 16)),
+        "blue" => Some((36, 114, 200)),
+        "magenta" => Some((188, 63, 188)),
+        "cyan" => Some((17, 168, 205)),
+        "white" => Some((229, 229, 229)),
+        "bright-black" | "gray" | "grey" => Some((102, 102, 102)),
+        "bright-red" => Some((241, 76, 76)),
+        "bright-green" => Some((35, 209, 139)),
+        "bright-yellow" => Some((245, 245, 67)),
+        "bright-blue" => Some((59, 142, 234)),
+        "bright-magenta" => Some((214, 112, 214)),
+        "bright-cyan" => Some((41, 184, 219)),
+        "bright-white" => Some((229, 229, 229)),
+        _ => None,
+    }
+}
+
 /// Two-stop gradient. The render layer interpolates per-character in RGB.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Gradient {
@@ -152,5 +206,64 @@ mod tests {
         };
         assert_eq!(g.sample(-1.0), (10, 10, 10));
         assert_eq!(g.sample(2.0), (20, 20, 20));
+    }
+
+    #[test]
+    fn normalise_name_lowercases_kebab_case() {
+        assert_eq!(normalise_name("brightRed"), "bright-red");
+        assert_eq!(normalise_name("bright-red"), "bright-red");
+        assert_eq!(normalise_name("Red"), "red");
+        assert_eq!(normalise_name("blue"), "blue");
+    }
+
+    #[test]
+    fn named_to_rgb_covers_all_ansi_16() {
+        for name in [
+            "black",
+            "red",
+            "green",
+            "yellow",
+            "blue",
+            "magenta",
+            "cyan",
+            "white",
+            "brightBlack",
+            "brightRed",
+            "brightGreen",
+            "brightYellow",
+            "brightBlue",
+            "brightMagenta",
+            "brightCyan",
+            "brightWhite",
+            "gray",
+            "grey",
+        ] {
+            assert!(
+                named_to_rgb(name).is_some(),
+                "expected {name} to resolve"
+            );
+        }
+    }
+
+    #[test]
+    fn named_to_rgb_specific_values() {
+        // Blue must be the VS Code integrated-terminal blue so pulse animates
+        // the same blue the widget renders statically.
+        assert_eq!(named_to_rgb("blue"), Some((36, 114, 200)));
+        assert_eq!(named_to_rgb("brightRed"), Some((241, 76, 76)));
+        assert_eq!(named_to_rgb("gray"), Some((102, 102, 102)));
+        assert_eq!(named_to_rgb("grey"), named_to_rgb("gray"));
+    }
+
+    #[test]
+    fn named_to_rgb_returns_none_for_unknown() {
+        assert_eq!(named_to_rgb("burnt-orange"), None);
+        assert_eq!(named_to_rgb(""), None);
+        assert_eq!(named_to_rgb("chunky-bacon"), None);
+    }
+
+    #[test]
+    fn named_to_rgb_accepts_camelcase_and_kebab() {
+        assert_eq!(named_to_rgb("brightBlue"), named_to_rgb("bright-blue"));
     }
 }

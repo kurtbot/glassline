@@ -107,9 +107,14 @@ fn apply_flat_rgb(spans: Vec<StyledSpan>, rgb: (u8, u8, u8)) -> Vec<StyledSpan> 
     )
 }
 
-/// Pulse existing fg by `brightness` (0.0..=1.0). Named / default fg
-/// spans are treated as white before scaling — chalk-parity would need
-/// per-name RGB values which we skip in the MVP.
+/// Pulse existing fg by `brightness` (0.0..=1.0).
+///
+/// Base-color resolution: `Color::Rgb` uses its channels directly;
+/// `Color::Named` resolves through [`crate::color::named_to_rgb`] so a
+/// widget with `Color::Named("blue")` pulses the same VS-Code-blue the
+/// static render shows. `Color::Default` (no fg configured) and any
+/// unrecognised named color fall back to white, matching the pre-T4
+/// behaviour for those cases.
 fn apply_pulse(spans: Vec<StyledSpan>, brightness: f64) -> Vec<StyledSpan> {
     let clamp = |v: f64| -> u8 { v.clamp(0.0, 255.0).round() as u8 };
     spans
@@ -117,12 +122,15 @@ fn apply_pulse(spans: Vec<StyledSpan>, brightness: f64) -> Vec<StyledSpan> {
         .map(|s| {
             let base = match &s.fg {
                 Color::Rgb { r, g, b } => (*r, *g, *b),
-                _ => (255, 255, 255),
+                Color::Named(name) => {
+                    crate::color::named_to_rgb(name).unwrap_or((255, 255, 255))
+                }
+                Color::Default | Color::Ansi256(_) => (255, 255, 255),
             };
             let scaled = (
-                clamp(base.0 as f64 * brightness),
-                clamp(base.1 as f64 * brightness),
-                clamp(base.2 as f64 * brightness),
+                clamp(f64::from(base.0) * brightness),
+                clamp(f64::from(base.1) * brightness),
+                clamp(f64::from(base.2) * brightness),
             );
             StyledSpan {
                 fg: Color::Rgb {
@@ -400,6 +408,45 @@ mod tests {
         let a = apply(plain("x"), &spec, 0);
         let b = apply(plain("x"), &spec, 30_000);
         assert_ne!(a[0].fg, b[0].fg);
+    }
+
+    #[test]
+    fn pulse_on_named_blue_scales_actual_blue() {
+        // Widget default color promotion happens at the pipeline layer, so
+        // by the time animate::apply runs, spans carry Named(...) rather
+        // than Default. Named colors must resolve to their RGB before
+        // brightness scaling — the pre-T4 behaviour scaled from white.
+        let mut spans = plain("x");
+        spans[0].fg = Color::Named("blue".into());
+        // cycleSeconds=2, now_ms=1000 -> phase=0.5 -> sin(pi/2)=1 -> brightness=1.0.
+        let spec = spec_with_meta(&[("animate", "pulse"), ("cycleSeconds", "2")]);
+        let out = apply(spans, &spec, 1_000);
+        // At brightness=1.0, expect the full-blue RGB (36, 114, 200) from
+        // the VS Code integrated-terminal palette.
+        match out[0].fg {
+            Color::Rgb { r, g, b } => {
+                assert!((i32::from(r) - 36).abs() < 5, "r={r}");
+                assert!((i32::from(g) - 114).abs() < 5, "g={g}");
+                assert!((i32::from(b) - 200).abs() < 5, "b={b}");
+            }
+            _ => panic!("expected Rgb after pulse, got {:?}", out[0].fg),
+        }
+    }
+
+    #[test]
+    fn pulse_on_default_falls_back_to_white() {
+        // Color::Default means no fg configured — animate can't invent a
+        // base color, so it pulses white (grey→white sinusoid).
+        let spans = plain("x");
+        // spans[0].fg is Color::Default by default.
+        let spec = spec_with_meta(&[("animate", "pulse"), ("cycleSeconds", "2")]);
+        let out = apply(spans, &spec, 1_000);
+        match out[0].fg {
+            Color::Rgb { r, g, b } => {
+                assert!(r > 200 && g > 200 && b > 200, "expected white-ish, got ({r},{g},{b})");
+            }
+            _ => panic!("expected Rgb"),
+        }
     }
 
     #[test]

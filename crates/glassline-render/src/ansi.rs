@@ -92,10 +92,9 @@ fn bg_code(color: &Color) -> Option<String> {
 /// background variants (SGR pattern: fg 30..=37 / 90..=97 → bg 40..=47 /
 /// 100..=107).
 fn named_code(name: &str) -> Option<u8> {
-    // Chalk uses camelCase for bright variants — accept both `brightRed` and
-    // `bright-red` so ports from either JSON layout Just Work.
-    let normalised = normalise_name(name);
-    match normalised.as_str() {
+    // Shared normalisation lives in glassline_core::color so the RGB lookup
+    // used by animate.rs stays in sync with what the ANSI writer accepts.
+    match glassline_core::color::normalise_name(name).as_str() {
         "black" => Some(30),
         "red" => Some(31),
         "green" => Some(32),
@@ -114,22 +113,6 @@ fn named_code(name: &str) -> Option<u8> {
         "bright-white" => Some(97),
         _ => None,
     }
-}
-
-fn normalise_name(name: &str) -> String {
-    // camelCase → kebab-case + lowercase.
-    let mut out = String::with_capacity(name.len() + 2);
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_ascii_uppercase() {
-            if i != 0 {
-                out.push('-');
-            }
-            out.push(ch.to_ascii_lowercase());
-        } else {
-            out.push(ch);
-        }
-    }
-    out
 }
 
 #[cfg(test)]
