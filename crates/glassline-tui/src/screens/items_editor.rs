@@ -20,7 +20,7 @@ use glassline_tui_dsl::{Action, List, Panel, Preview, Screen, Ui};
 
 use crate::preview_ctx::canned_context;
 use crate::screens::confirm_modal::ConfirmModal;
-use crate::screens::placeholder::Placeholder;
+use crate::screens::widget_editor::WidgetEditor;
 use crate::screens::widget_picker::WidgetPicker;
 
 pub struct ItemsEditor {
@@ -169,10 +169,9 @@ impl Screen for ItemsEditor {
             }
             KeyCode::Char('a') => self.push_picker(),
             KeyCode::Char('d') => self.push_delete_confirm(),
-            KeyCode::Enter => Action::Push(Box::new(Placeholder::new(
-                "Widget editor",
-                "Per-knob editor lands in T3.4. Esc to go back.",
-            ))),
+            KeyCode::Enter => {
+                Action::Push(Box::new(WidgetEditor::new(self.line_index, self.cursor)))
+            }
             _ => Action::None,
         }
     }
