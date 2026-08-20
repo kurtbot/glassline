@@ -9,6 +9,7 @@
 //!   of knobs the editor should surface. It never runs in the render
 //!   hot path.
 
+pub mod drift;
 pub mod entries;
 
 pub use entries::METAS;
