@@ -206,11 +206,15 @@ fn extract_number(stat: &str, keyword: &str) -> u32 {
     stat[start..end].parse().unwrap_or(0)
 }
 
-/// A parsed `<owner>/<repo>` pair from a git remote URL.
+/// A parsed `<host>/<owner>/<repo>` triple from a git remote URL. `host`
+/// is optional — `parse_remote_url` populates it from the URL when
+/// present, and `get_git_origin` may leave it empty when the fast-path
+/// StatusJson field doesn't carry it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitRemote {
     pub owner: String,
     pub repo: String,
+    pub host: Option<String>,
 }
 
 /// Parse a git remote URL into `<owner>/<repo>` components.
@@ -238,21 +242,29 @@ pub fn parse_remote_url(url: &str) -> Option<GitRemote> {
 
     // SSH form: `git@host:owner/repo`
     if let Some(rest) = stripped.strip_prefix("git@")
-        && let Some((_host, path)) = rest.split_once(':')
+        && let Some((host, path)) = rest.split_once(':')
     {
-        return split_owner_repo(path);
+        return split_owner_repo(path, Some(host));
     }
-    // ssh://user@host/owner/repo
+    // scheme://[user@]host/owner/repo
     for scheme in ["ssh://", "git://", "https://", "http://"] {
         if let Some(rest) = stripped.strip_prefix(scheme) {
-            let after_host = rest.split_once('/').map(|(_, tail)| tail)?;
-            return split_owner_repo(after_host);
+            let (host_part, after_host) = rest.split_once('/')?;
+            let host = strip_user_prefix(host_part);
+            return split_owner_repo(after_host, Some(host));
         }
     }
     None
 }
 
-fn split_owner_repo(path: &str) -> Option<GitRemote> {
+/// Drop any `user@` (or `user:pass@`) prefix from the host segment of a
+/// `scheme://` URL. Multiple `@`s split at the last one so weird auth
+/// strings still leave the actual host.
+fn strip_user_prefix(s: &str) -> &str {
+    s.rsplit_once('@').map_or(s, |(_, host)| host)
+}
+
+fn split_owner_repo(path: &str, host: Option<&str>) -> Option<GitRemote> {
     // Path is `owner/repo` — split on last '/' so nested paths like
     // `group/subgroup/repo` still yield ("group/subgroup", "repo") but we
     // conservatively require exactly one slash for now (matches TS behavior
@@ -269,6 +281,10 @@ fn split_owner_repo(path: &str) -> Option<GitRemote> {
     Some(GitRemote {
         owner: owner.to_string(),
         repo: repo.to_string(),
+        host: host
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from),
     })
 }
 
@@ -283,6 +299,68 @@ pub fn get_git_remote_url(ctx: &RenderContext, remote_name: &str) -> Option<Stri
 #[must_use]
 pub fn get_git_remote(ctx: &RenderContext, remote_name: &str) -> Option<GitRemote> {
     parse_remote_url(&get_git_remote_url(ctx, remote_name)?)
+}
+
+/// Resolve the `origin` remote identity, preferring Claude Code v2.1+'s
+/// native `workspace.repo` field. Falls back to
+/// [`get_git_remote(ctx, "origin")`] — the classic
+/// `git remote get-url origin` shell-out + URL parse — when the native
+/// field is absent, or when its `owner` / `name` sub-fields are missing
+/// or blank. This lets callers stay on one code path while still
+/// benefiting from the ~5–15 ms saved shell-out whenever Claude Code
+/// populates the field.
+///
+/// See `statusjson_native_repo_design_v1.0` for the full contract.
+#[must_use]
+pub fn get_git_origin(ctx: &RenderContext) -> Option<GitRemote> {
+    if let Some(data) = ctx.data.as_ref()
+        && let Some(ws) = data.workspace.as_ref()
+        && let Some(native) = ws.repo.as_ref()
+    {
+        let owner = native
+            .owner
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let name = native
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        if let (Some(owner), Some(name)) = (owner, name) {
+            return Some(GitRemote {
+                owner: owner.to_string(),
+                repo: name.to_string(),
+                host: native
+                    .host
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from),
+            });
+        }
+    }
+    get_git_remote(ctx, "origin")
+}
+
+/// Resolve just the origin host, preferring
+/// `workspace.repo.host` from Claude Code. Falls back to parsing the
+/// origin URL. Returns `None` when neither source produces a non-empty
+/// host string.
+#[must_use]
+pub fn get_git_origin_host(ctx: &RenderContext) -> Option<String> {
+    if let Some(data) = ctx.data.as_ref()
+        && let Some(ws) = data.workspace.as_ref()
+        && let Some(native) = ws.repo.as_ref()
+        && let Some(host) = native
+            .host
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+    {
+        return Some(host.to_string());
+    }
+    get_git_remote(ctx, "origin").and_then(|r| r.host)
 }
 
 /// Ahead/behind counts vs the upstream tracking branch via
@@ -428,6 +506,7 @@ mod tests {
                 workspace: Some(Workspace {
                     current_dir: Some("/ws".into()),
                     project_dir: Some("/proj".into()),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -444,6 +523,7 @@ mod tests {
                 workspace: Some(Workspace {
                     current_dir: Some("   ".into()),
                     project_dir: Some("/proj".into()),
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),
@@ -497,6 +577,7 @@ mod tests {
         let r = parse_remote_url("git@github.com:kurtbot/glassline.git").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -504,6 +585,7 @@ mod tests {
         let r = parse_remote_url("https://github.com/kurtbot/glassline.git").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -511,6 +593,7 @@ mod tests {
         let r = parse_remote_url("https://github.com/kurtbot/glassline").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -518,6 +601,7 @@ mod tests {
         let r = parse_remote_url("https://github.com/kurtbot/glassline/").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -525,6 +609,7 @@ mod tests {
         let r = parse_remote_url("git://github.com/kurtbot/glassline.git").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -532,6 +617,23 @@ mod tests {
         let r = parse_remote_url("ssh://git@github.com/kurtbot/glassline.git").unwrap();
         assert_eq!(r.owner, "kurtbot");
         assert_eq!(r.repo, "glassline");
+        // `user@` should be stripped — the host is just github.com.
+        assert_eq!(r.host.as_deref(), Some("github.com"));
+    }
+
+    #[test]
+    fn parse_remote_url_host_from_gitlab() {
+        // Non-github hosts round-trip too.
+        let r = parse_remote_url("git@gitlab.example.com:group/repo.git").unwrap();
+        assert_eq!(r.host.as_deref(), Some("gitlab.example.com"));
+    }
+
+    #[test]
+    fn parse_remote_url_host_strips_userauth_with_password() {
+        // Weird but legal: user:pass@host. rsplit_once at the LAST `@`
+        // must leave just the host.
+        let r = parse_remote_url("https://user:tok@github.com/kurtbot/glassline.git").unwrap();
+        assert_eq!(r.host.as_deref(), Some("github.com"));
     }
 
     #[test]
@@ -552,5 +654,90 @@ mod tests {
         assert!(parse_remote_url("git@github.com:").is_none());
         assert!(parse_remote_url("git@github.com:onlyowner").is_none());
         assert!(parse_remote_url("https://github.com/only-owner").is_none());
+    }
+
+    // ---- get_git_origin / get_git_origin_host (native fast path) ----
+
+    fn ctx_with_native_repo(
+        host: Option<&str>,
+        owner: Option<&str>,
+        name: Option<&str>,
+    ) -> RenderContext {
+        use glassline_core::status_json::WorkspaceRepo;
+        RenderContext {
+            data: Some(StatusJson {
+                workspace: Some(Workspace {
+                    repo: Some(WorkspaceRepo {
+                        host: host.map(String::from),
+                        owner: owner.map(String::from),
+                        name: name.map(String::from),
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn get_git_origin_fast_path_returns_native() {
+        // Deliberately no cwd — a shell-out would have nothing to run
+        // against. If we still get a GitRemote back, the fast path fired.
+        let ctx = ctx_with_native_repo(Some("github.com"), Some("kurtbot"), Some("glassline"));
+        let r = get_git_origin(&ctx).unwrap();
+        assert_eq!(r.owner, "kurtbot");
+        assert_eq!(r.repo, "glassline");
+        assert_eq!(r.host.as_deref(), Some("github.com"));
+    }
+
+    #[test]
+    fn get_git_origin_missing_name_falls_back() {
+        // owner present but name missing → fast path aborts. No cwd →
+        // fallback also has nothing to give → None. The important part
+        // is that the fast path did NOT return a partially-filled remote.
+        let ctx = ctx_with_native_repo(Some("github.com"), Some("kurtbot"), None);
+        assert!(get_git_origin(&ctx).is_none());
+    }
+
+    #[test]
+    fn get_git_origin_blank_owner_falls_back() {
+        let ctx = ctx_with_native_repo(Some("github.com"), Some("   "), Some("glassline"));
+        assert!(get_git_origin(&ctx).is_none());
+    }
+
+    #[test]
+    fn get_git_origin_no_workspace_repo_falls_back() {
+        // No workspace.repo at all → get_git_remote(origin) fires;
+        // without a cwd it returns None. Verifies no crash on absence.
+        let ctx = RenderContext {
+            data: Some(StatusJson::default()),
+            ..Default::default()
+        };
+        assert!(get_git_origin(&ctx).is_none());
+    }
+
+    #[test]
+    fn get_git_origin_host_fast_path() {
+        let ctx = ctx_with_native_repo(Some("gitlab.com"), Some("g"), Some("r"));
+        assert_eq!(get_git_origin_host(&ctx).as_deref(), Some("gitlab.com"));
+    }
+
+    #[test]
+    fn get_git_origin_host_blank_falls_back() {
+        // Native host is whitespace → treated as absent. Fallback path
+        // has no cwd so returns None. Verifies we don't emit "   " as a
+        // host.
+        let ctx = ctx_with_native_repo(Some("  "), Some("g"), Some("r"));
+        assert!(get_git_origin_host(&ctx).is_none());
+    }
+
+    #[test]
+    fn get_git_origin_host_absent_workspace_returns_none() {
+        let ctx = RenderContext {
+            data: Some(StatusJson::default()),
+            ..Default::default()
+        };
+        assert!(get_git_origin_host(&ctx).is_none());
     }
 }
