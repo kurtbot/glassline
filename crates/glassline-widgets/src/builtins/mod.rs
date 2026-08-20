@@ -5,6 +5,7 @@ pub mod block_reset_timer;
 pub mod block_timer;
 pub mod cache_hit_rate;
 pub mod cache_read;
+pub mod cache_timer;
 pub mod cache_write;
 pub mod claude_session_id;
 pub mod compaction_counter;

@@ -42,6 +42,35 @@ pub struct TranscriptScan {
     /// `3hr`, `1hr 12m`. `None` when we couldn't recover both endpoints.
     pub session_duration: Option<String>,
     pub speed: SpeedMetrics,
+    /// `true` when the newest main-chain (non-sidechain) entry is a user
+    /// row — Claude Code is mid-turn processing a prompt or tool result
+    /// and the prompt cache is refreshing. Consumed by `cache-timer`.
+    pub cache_working: bool,
+    /// Unix-epoch milliseconds of the newest main-chain assistant entry
+    /// that actually touched the prompt cache (nonzero
+    /// `cache_read_input_tokens + cache_creation_input_tokens`, or missing
+    /// usage data — older transcript formats without usage counters are
+    /// assumed to have touched the cache). `None` when no such entry
+    /// exists.
+    pub cache_last_touch_ms: Option<u64>,
+}
+
+/// Whether an assistant transcript entry actually touched the prompt cache.
+///
+/// Upstream policy (`hasCacheActivity` in CacheTimer.ts): rows without
+/// usage data cannot be classified and are assumed to be cache events so
+/// older transcript formats keep driving the countdown. Rows with usage
+/// data are cache events only when `cache_read + cache_creation > 0`.
+fn has_cache_activity(event: &TranscriptEvent) -> bool {
+    let Some(msg) = event.message.as_ref() else {
+        return true;
+    };
+    let Some(usage) = msg.usage.as_ref() else {
+        return true;
+    };
+    (usage.cache_read_input_tokens.unwrap_or(0)
+        + usage.cache_creation_input_tokens.unwrap_or(0))
+        > 0
 }
 
 /// Fatal I/O error. Missing file / empty file / all-unparseable lines are
@@ -75,6 +104,15 @@ pub fn scan(path: &Path, needs: WidgetRequirements) -> Result<TranscriptScan, Sc
     let want_compaction = needs.contains(WidgetRequirements::COMPACTION);
     let want_duration = needs.contains(WidgetRequirements::SESSION_CLOCK);
     let want_speed = needs.contains(WidgetRequirements::SPEED);
+    // cache-timer state comes essentially free during the same iteration
+    // (one bool + one Option<Timestamp>). Compute it whenever any
+    // transcript work is happening; the widget itself gates on
+    // TRANSCRIPT via its declared requirement.
+    let want_cache_timer = want_tokens
+        || want_compaction
+        || want_duration
+        || want_speed
+        || needs.contains(WidgetRequirements::CACHE);
 
     let mut acc = ScanAccumulator::default();
 
@@ -108,9 +146,18 @@ pub fn scan(path: &Path, needs: WidgetRequirements) -> Result<TranscriptScan, Sc
         if want_speed && !event.is_api_error_message && !event.is_sidechain {
             acc.record_speed(&event);
         }
+        if want_cache_timer && !event.is_sidechain {
+            acc.record_cache_timer(&event);
+        }
     }
 
-    Ok(acc.finish(want_tokens, want_compaction, want_duration, want_speed))
+    Ok(acc.finish(
+        want_tokens,
+        want_compaction,
+        want_duration,
+        want_speed,
+        want_cache_timer,
+    ))
 }
 
 // ---------- accumulator ----------
@@ -141,6 +188,12 @@ struct ScanAccumulator {
     // speed
     last_user_ts: Option<OffsetDateTime>,
     speed_requests: Vec<SpeedRequestRec>,
+    // cache-timer
+    /// Whether the latest main-chain entry seen was a `user` row.
+    /// `false` initially; set true on user rows, false on assistant rows.
+    last_main_chain_was_user: bool,
+    /// Newest main-chain assistant entry with cache activity.
+    newest_cache_touch_ts: Option<OffsetDateTime>,
 }
 
 #[derive(Debug, Clone)]
@@ -207,6 +260,33 @@ impl ScanAccumulator {
         });
     }
 
+    fn record_cache_timer(&mut self, event: &TranscriptEvent) {
+        match event.r#type.as_deref() {
+            Some("user") => {
+                self.last_main_chain_was_user = true;
+            }
+            Some("assistant") => {
+                self.last_main_chain_was_user = false;
+                if event.is_api_error_message {
+                    return;
+                }
+                if !has_cache_activity(event) {
+                    return;
+                }
+                let Some(ts) = event.parsed_timestamp() else {
+                    return;
+                };
+                if self
+                    .newest_cache_touch_ts
+                    .is_none_or(|prev| ts > prev)
+                {
+                    self.newest_cache_touch_ts = Some(ts);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn record_speed(&mut self, event: &TranscriptEvent) {
         let Some(ts) = event.parsed_timestamp() else {
             return;
@@ -236,6 +316,7 @@ impl ScanAccumulator {
         want_compaction: bool,
         want_duration: bool,
         want_speed: bool,
+        want_cache_timer: bool,
     ) -> TranscriptScan {
         let mut scan = TranscriptScan::default();
 
@@ -258,6 +339,13 @@ impl ScanAccumulator {
         }
         if want_speed {
             scan.speed = self.finish_speed();
+        }
+        if want_cache_timer {
+            scan.cache_working = self.last_main_chain_was_user;
+            scan.cache_last_touch_ms = self.newest_cache_touch_ts.map(|ts| {
+                let millis = ts.unix_timestamp_nanos() / 1_000_000;
+                u64::try_from(millis).unwrap_or(0)
+            });
         }
         scan
     }

@@ -7,7 +7,8 @@
 use glassline_core::widget::Widget;
 
 use crate::builtins::{
-    block_reset_timer, block_timer, cache_hit_rate, cache_read, cache_write, claude_session_id,
+    block_reset_timer, block_timer, cache_hit_rate, cache_read, cache_timer, cache_write,
+    claude_session_id,
     compaction_counter, context_bar, context_length, context_percentage, context_percentage_usable,
     context_window, custom_command, custom_symbol, custom_text, cwd, extra_usage_remaining,
     extra_usage_used, extra_usage_utilization, fable_weekly_usage, flex_separator, free_memory,
@@ -34,6 +35,7 @@ pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "block-timer" => block_timer::factory,
     "cache-hit-rate" => cache_hit_rate::factory,
     "cache-read" => cache_read::factory,
+    "cache-timer" => cache_timer::factory,
     "cache-write" => cache_write::factory,
     "claude-session-id" => claude_session_id::factory,
     "compaction-counter" => compaction_counter::factory,

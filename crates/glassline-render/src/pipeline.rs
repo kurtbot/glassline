@@ -245,17 +245,18 @@ mod tests {
     fn known_widget_wins_next_to_unknown() {
         let mut known = WidgetSpec::new("k", "custom-text");
         known.custom_text = Some("hi".into());
-        // Pick an ID that hasn't been ported yet — cache widgets (5m/1h TTL
-        // display, HIT/COLD state) are a P3 batch, so `cache-timer` stays
-        // a reliable placeholder stand-in for now.
-        let unknown = WidgetSpec::new("u", "cache-timer");
+        // Pick an ID that will never exist in the registry — reserving a
+        // synthetic namespace here so future additions to the widget
+        // catalogue (e.g. more P3.6 ports) don't turn this stand-in real
+        // and silently break the assertion below.
+        let unknown = WidgetSpec::new("u", "test-only-not-a-real-widget");
         let settings = Settings {
             lines: vec![vec![known, unknown], vec![], vec![]],
             ..Settings::in_memory_defaults()
         };
         let out = render_to_string(ctx_with(StatusJson::default()), &settings).unwrap();
         assert!(out.contains("hi"));
-        assert!(out.contains("[?cache-timer]"));
+        assert!(out.contains("[?test-only-not-a-real-widget]"));
     }
 
     #[test]
