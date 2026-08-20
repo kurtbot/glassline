@@ -165,9 +165,7 @@ fn apply_pulse(spans: Vec<StyledSpan>, brightness: f64) -> Vec<StyledSpan> {
         .map(|s| {
             let base = match &s.fg {
                 Color::Rgb { r, g, b } => (*r, *g, *b),
-                Color::Named(name) => {
-                    crate::color::named_to_rgb(name).unwrap_or((255, 255, 255))
-                }
+                Color::Named(name) => crate::color::named_to_rgb(name).unwrap_or((255, 255, 255)),
                 Color::Default | Color::Ansi256(_) => (255, 255, 255),
             };
             let scaled = (
@@ -497,7 +495,10 @@ mod tests {
         let out = apply(spans, &spec, 1_000);
         match out[0].fg {
             Color::Rgb { r, g, b } => {
-                assert!(r > 200 && g > 200 && b > 200, "expected white-ish, got ({r},{g},{b})");
+                assert!(
+                    r > 200 && g > 200 && b > 200,
+                    "expected white-ish, got ({r},{g},{b})"
+                );
             }
             _ => panic!("expected Rgb"),
         }
@@ -597,13 +598,19 @@ mod tests {
         let spec = spec_with_meta(&[("pulseAbove", "80"), ("cycleSeconds", "2")]);
         // 70% -> below threshold -> passthrough.
         let low = apply(plain("Ctx: 70%"), &spec, 1_000);
-        assert!(matches!(low[0].fg, Color::Default), "expected passthrough at 70%");
+        assert!(
+            matches!(low[0].fg, Color::Default),
+            "expected passthrough at 70%"
+        );
         // 85% -> above threshold -> pulsed. brightness at now_ms=1000
         // (phase 0.5) is ~1.0, so fg becomes bright-white RGB.
         let mut hi_spans = plain("Ctx: 85%");
         hi_spans[0].fg = Color::Named("blue".into());
         let hi = apply(hi_spans, &spec, 1_000);
-        assert!(matches!(hi[0].fg, Color::Rgb { .. }), "expected Rgb after pulse");
+        assert!(
+            matches!(hi[0].fg, Color::Rgb { .. }),
+            "expected Rgb after pulse"
+        );
     }
 
     #[test]
@@ -645,7 +652,10 @@ mod tests {
         // any span (T6 lands the hint path). pulseAbove must skip cleanly.
         let spec = spec_with_meta(&[("pulseAbove", "50"), ("cycleSeconds", "2")]);
         let out = apply(plain("Ctx: 78k tokens"), &spec, 1_000);
-        assert!(matches!(out[0].fg, Color::Default), "expected passthrough with no % source");
+        assert!(
+            matches!(out[0].fg, Color::Default),
+            "expected passthrough with no % source"
+        );
     }
 
     #[test]

@@ -91,9 +91,7 @@ pub fn cache_path() -> Option<PathBuf> {
     }
     let home = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache"))
-        })
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache")))
         .or_else(|| std::env::var_os("USERPROFILE").map(|h| PathBuf::from(h).join(".cache")))?;
     Some(home.join("glassline").join("render.cache"))
 }
@@ -137,7 +135,7 @@ pub fn build_key(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let time_bucket = if ttl == 0 { now_ms } else { now_ms / ttl };
+    let time_bucket = now_ms.checked_div(ttl).unwrap_or(now_ms);
     CacheKey {
         stdin_hash: hash_stdin(stdin_bytes),
         settings_mtime_ns,
@@ -322,10 +320,7 @@ mod tests {
         }
         let key = dummy_key(b"x", 0, 0);
         write(&key, "cached-output", 1_000);
-        assert!(
-            try_read(&key, 1_000).is_none(),
-            "TTL=0 must always miss"
-        );
+        assert!(try_read(&key, 1_000).is_none(), "TTL=0 must always miss");
         unsafe {
             std::env::remove_var("GLASSLINE_RENDER_TTL_MS");
         }
