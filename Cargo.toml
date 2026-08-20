@@ -52,7 +52,7 @@ time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
 # backend targets `ratatui::crossterm`, so we don't need a separate
 # `crossterm` workspace dep.
 ratatui = "0.30"
-tui-input = "0.14"
+tui-input = "0.15"
 
 # Test-only
 insta = { version = "1", features = ["yaml", "json", "redactions"] }
