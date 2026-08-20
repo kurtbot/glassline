@@ -18,22 +18,65 @@ use glassline_core::settings::Settings;
 /// scratch [`Settings`].
 pub struct Ui<'a, 'b> {
     /// The frame currently being drawn. Screens can reach in when they
-    /// need something the helper surface doesn't cover.
+    /// need something the helper surface doesn't cover — e.g. modals
+    /// that want to draw over the reserved footer row.
     pub frame: &'a mut Frame<'b>,
     /// Read-only view of the app's scratch settings — the shape the
     /// preview should render.
     pub settings: &'a Settings,
+    /// Frame area minus any rows reserved by the app for global chrome
+    /// (footer keybindings strip). Screens should lay out inside this
+    /// via [`Self::area`]. Overlays that want to paint anywhere
+    /// (modals) can go through [`Self::frame`] directly.
+    body_area: Rect,
 }
 
 impl<'a, 'b> Ui<'a, 'b> {
     #[must_use]
     pub fn new(frame: &'a mut Frame<'b>, settings: &'a Settings) -> Self {
-        Self { frame, settings }
+        let body_area = frame.area();
+        Self {
+            frame,
+            settings,
+            body_area,
+        }
     }
 
-    /// The full drawing area for the current frame.
+    /// Construct a `Ui` whose body area excludes the last `footer_rows`
+    /// rows of the frame. Called by [`crate::app::DslApp`] to reserve
+    /// the global-footer strip. Screens don't need to know footer
+    /// rows exist — [`Self::area`] already excludes them.
+    #[must_use]
+    pub fn with_reserved_footer(
+        frame: &'a mut Frame<'b>,
+        settings: &'a Settings,
+        footer_rows: u16,
+    ) -> Self {
+        let full = frame.area();
+        let body_area = Rect {
+            x: full.x,
+            y: full.y,
+            width: full.width,
+            height: full.height.saturating_sub(footer_rows),
+        };
+        Self {
+            frame,
+            settings,
+            body_area,
+        }
+    }
+
+    /// The body drawing area (frame area minus the app's reserved
+    /// footer strip).
     #[must_use]
     pub fn area(&self) -> Rect {
+        self.body_area
+    }
+
+    /// The full frame area, ignoring any reserved footer strip. Modals
+    /// and overlays that intentionally paint over chrome use this.
+    #[must_use]
+    pub fn frame_area(&self) -> Rect {
         self.frame.area()
     }
 

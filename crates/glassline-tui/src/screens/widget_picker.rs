@@ -129,7 +129,11 @@ impl Screen for WidgetPicker {
             KeyCode::Esc => Action::Pop,
             KeyCode::Enter => {
                 if let Some(meta) = self.highlighted() {
-                    return (self.on_select)(meta);
+                    // Always pop the picker after firing the callback
+                    // so callers don't have to wrap their return in a
+                    // Sequence(Pop, ...) themselves.
+                    let cb_action = (self.on_select)(meta);
+                    return Action::Sequence(vec![Action::Pop, cb_action]);
                 }
                 Action::None
             }

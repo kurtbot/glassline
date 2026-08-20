@@ -165,10 +165,28 @@ impl DslApp {
         if let Some(top) = self.screens.last_mut() {
             let scratch = &self.scratch;
             let toast = self.pending_toast.as_ref();
+            let keybindings = top.keybindings();
+            let footer_text = render_footer_line(keybindings);
             terminal
                 .draw(|frame| {
-                    let mut ui = Ui::new(frame, scratch);
+                    let mut ui = Ui::with_reserved_footer(frame, scratch, 1);
                     top.render(&mut ui);
+                    // Paint the global keybindings strip in the bottom
+                    // row, after the screen has drawn.
+                    let full = frame.area();
+                    if full.height > 0 {
+                        let footer_rect = ratatui::layout::Rect {
+                            x: full.x,
+                            y: full.y + full.height - 1,
+                            width: full.width,
+                            height: 1,
+                        };
+                        let para = ratatui::widgets::Paragraph::new(footer_text.as_str()).style(
+                            ratatui::style::Style::default()
+                                .add_modifier(ratatui::style::Modifier::DIM),
+                        );
+                        frame.render_widget(para, footer_rect);
+                    }
                     if let Some(t) = toast {
                         t.render(frame.area(), frame);
                     }
@@ -246,6 +264,16 @@ impl DslApp {
     pub fn take_toast(&mut self) -> Option<String> {
         self.pending_toast.take().map(|t| t.text().to_string())
     }
+}
+
+/// Format a screen's keybindings into a single footer line —
+/// `[key] label  [key] label  …`.
+fn render_footer_line(bindings: &[(&'static str, &'static str)]) -> String {
+    bindings
+        .iter()
+        .map(|(k, a)| format!("[{k}] {a}"))
+        .collect::<Vec<_>>()
+        .join("  ")
 }
 
 #[cfg(test)]
