@@ -46,6 +46,21 @@ pub enum Action {
     Toast(String),
 }
 
+impl std::fmt::Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => f.write_str("Action::None"),
+            // `Box<dyn Screen>` isn't Debug — surface the screen's
+            // title instead so tests can eyeball the variant + target.
+            Self::Push(s) => write!(f, "Action::Push({:?})", s.title()),
+            Self::Pop => f.write_str("Action::Pop"),
+            Self::Replace(s) => write!(f, "Action::Replace({:?})", s.title()),
+            Self::Quit { save } => write!(f, "Action::Quit {{ save: {save} }}"),
+            Self::Toast(t) => write!(f, "Action::Toast({t:?})"),
+        }
+    }
+}
+
 /// What [`crate::app::DslApp::run`] returns to the caller once the
 /// screen stack empties (or a screen returned `Action::Quit`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
