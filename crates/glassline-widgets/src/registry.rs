@@ -7,10 +7,13 @@
 use glassline_core::widget::Widget;
 
 use crate::builtins::{
-    block_reset_timer, block_timer, claude_session_id, compaction_counter, context_bar,
-    context_length, context_percentage, custom_text, cwd, git_branch, git_changes, git_root_dir,
-    git_sha, git_status, link, model, output_style, separator, session_clock, session_cost,
-    session_name, speed, thinking_effort, tokens_input, tokens_output, usage, version,
+    block_reset_timer, block_timer, cache_hit_rate, cache_read, cache_write, claude_session_id,
+    compaction_counter, context_bar, context_length, context_percentage, context_percentage_usable,
+    context_window, custom_text, cwd, extra_usage_remaining, extra_usage_used,
+    extra_usage_utilization, fable_weekly_usage, git_branch, git_changes, git_root_dir, git_sha,
+    git_status, link, model, output_style, separator, session_clock, session_cost, session_name,
+    speed, thinking_effort, tokens_cached, tokens_input, tokens_output, tokens_total, usage,
+    version,
 };
 
 /// A zero-arg factory. Widgets are cheap to construct — no shared state.
@@ -21,13 +24,22 @@ pub type WidgetFactory = fn() -> Box<dyn Widget>;
 pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "block-reset-timer" => block_reset_timer::factory,
     "block-timer" => block_timer::factory,
+    "cache-hit-rate" => cache_hit_rate::factory,
+    "cache-read" => cache_read::factory,
+    "cache-write" => cache_write::factory,
     "claude-session-id" => claude_session_id::factory,
     "compaction-counter" => compaction_counter::factory,
     "context-bar" => context_bar::factory,
     "context-length" => context_length::factory,
     "context-percentage" => context_percentage::factory,
+    "context-percentage-usable" => context_percentage_usable::factory,
+    "context-window" => context_window::factory,
     "current-working-dir" => cwd::factory,
     "custom-text" => custom_text::factory,
+    "extra-usage-remaining" => extra_usage_remaining::factory,
+    "extra-usage-used" => extra_usage_used::factory,
+    "extra-usage-utilization" => extra_usage_utilization::factory,
+    "fable-weekly-usage" => fable_weekly_usage::factory,
     "git-branch" => git_branch::factory,
     "git-changes" => git_changes::factory,
     "git-root-dir" => git_root_dir::factory,
@@ -44,8 +56,10 @@ pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "session-name" => session_name::factory,
     "session-usage" => usage::session_usage_factory,
     "thinking-effort" => thinking_effort::factory,
+    "tokens-cached" => tokens_cached::factory,
     "tokens-input" => tokens_input::factory,
     "tokens-output" => tokens_output::factory,
+    "tokens-total" => tokens_total::factory,
     "total-speed" => speed::total_factory,
     "version" => version::factory,
     "weekly-opus-usage" => usage::weekly_opus_usage_factory,

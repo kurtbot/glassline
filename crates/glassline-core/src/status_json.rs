@@ -101,6 +101,11 @@ pub struct ContextWindow {
     pub used_percentage: Option<f64>,
     #[serde(deserialize_with = "coerced_number", default)]
     pub remaining_percentage: Option<f64>,
+    /// Percentage of the context window that's still usable after
+    /// reserving the model's max-output allocation. Claude Code populates
+    /// this when it knows the model's output cap; absent otherwise.
+    #[serde(deserialize_with = "coerced_number", default)]
+    pub usable_percentage: Option<f64>,
 }
 
 /// `current_usage` is either a bare number or a token breakdown object.
