@@ -5,11 +5,13 @@
 //! rendering backend stays swappable without touching downstream code.
 
 pub mod app;
+pub mod modal;
 pub mod panel;
 pub mod screen;
 pub mod ui;
 
 pub use app::{DslApp, DslError};
+pub use modal::{Button, Modal, centered_rect};
 pub use panel::{BorderStyle, Panel};
 pub use screen::{Action, Outcome, Screen};
 pub use ui::Ui;
