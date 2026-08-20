@@ -64,11 +64,7 @@ pub fn read_oauth_account_email() -> Option<String> {
     let path = claude_json_path()?;
     let raw = std::fs::read_to_string(&path).ok()?;
     let v: Value = serde_json::from_str(&raw).ok()?;
-    let email = v
-        .get("oauthAccount")?
-        .get("emailAddress")?
-        .as_str()?
-        .trim();
+    let email = v.get("oauthAccount")?.get("emailAddress")?.as_str()?.trim();
     if email.is_empty() {
         return None;
     }
@@ -262,10 +258,7 @@ mod tests {
         std::fs::create_dir_all(&user_dir).unwrap();
         set_user_dir(&user_dir);
 
-        assert_eq!(
-            read_layered_bool(&cwd, &["sandbox", "enabled"]),
-            None
-        );
+        assert_eq!(read_layered_bool(&cwd, &["sandbox", "enabled"]), None);
         unset_user_dir();
     }
 
@@ -426,11 +419,7 @@ mod tests {
     fn oauth_email_none_when_field_missing() {
         let _g = TEST_ENV_LOCK.lock().unwrap();
         let td = tmp("email-missing");
-        std::fs::write(
-            td.path().join(".claude.json"),
-            r#"{"other":"key"}"#,
-        )
-        .unwrap();
+        std::fs::write(td.path().join(".claude.json"), r#"{"other":"key"}"#).unwrap();
         set_user_dir(td.path());
 
         assert_eq!(read_oauth_account_email(), None);

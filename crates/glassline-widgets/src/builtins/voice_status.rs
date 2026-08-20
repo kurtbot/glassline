@@ -188,10 +188,7 @@ mod tests {
 
     #[test]
     fn word_format_prefixed() {
-        assert_eq!(
-            format_status(true, Format::Word, false, false),
-            "voice on"
-        );
+        assert_eq!(format_status(true, Format::Word, false, false), "voice on");
         assert_eq!(format_status(true, Format::Word, false, true), "on");
     }
 }

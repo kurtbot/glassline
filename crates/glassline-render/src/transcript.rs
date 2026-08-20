@@ -68,8 +68,7 @@ fn has_cache_activity(event: &TranscriptEvent) -> bool {
     let Some(usage) = msg.usage.as_ref() else {
         return true;
     };
-    (usage.cache_read_input_tokens.unwrap_or(0)
-        + usage.cache_creation_input_tokens.unwrap_or(0))
+    (usage.cache_read_input_tokens.unwrap_or(0) + usage.cache_creation_input_tokens.unwrap_or(0))
         > 0
 }
 
@@ -276,10 +275,7 @@ impl ScanAccumulator {
                 let Some(ts) = event.parsed_timestamp() else {
                     return;
                 };
-                if self
-                    .newest_cache_touch_ts
-                    .is_none_or(|prev| ts > prev)
-                {
+                if self.newest_cache_touch_ts.is_none_or(|prev| ts > prev) {
                     self.newest_cache_touch_ts = Some(ts);
                 }
             }

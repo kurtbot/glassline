@@ -115,7 +115,11 @@ fn format_status(enabled: bool, format: Format, nerd_font: bool, raw: bool) -> S
     let state_text = if enabled { "on" } else { "off" };
     let state_dot = if enabled { STATE_DOT_ON } else { STATE_DOT_OFF };
     let icon = if nerd_font {
-        if enabled { SATELLITE_NF } else { SATELLITE_SLASH_NF }
+        if enabled {
+            SATELLITE_NF
+        } else {
+            SATELLITE_SLASH_NF
+        }
     } else {
         SATELLITE_EMOJI
     };
@@ -197,10 +201,7 @@ mod tests {
 
     #[test]
     fn word_format_prefixed() {
-        assert_eq!(
-            format_status(true, Format::Word, false, false),
-            "remote on"
-        );
+        assert_eq!(format_status(true, Format::Word, false, false), "remote on");
     }
 
     #[test]

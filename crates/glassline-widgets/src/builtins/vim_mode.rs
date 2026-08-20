@@ -136,10 +136,7 @@ mod tests {
 
     #[test]
     fn hides_with_no_status_json() {
-        let spans = VimMode.render(
-            &WidgetSpec::new("1", "vim-mode"),
-            &RenderContext::default(),
-        );
+        let spans = VimMode.render(&WidgetSpec::new("1", "vim-mode"), &RenderContext::default());
         assert!(spans.is_empty());
     }
 }

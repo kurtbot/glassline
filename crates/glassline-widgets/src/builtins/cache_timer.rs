@@ -154,11 +154,7 @@ fn labelled(spec: &WidgetSpec, value: String) -> String {
 }
 
 fn ttl_seconds(spec: &WidgetSpec) -> u64 {
-    let Some(raw) = spec
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get("ttlSeconds"))
-    else {
+    let Some(raw) = spec.metadata.as_ref().and_then(|m| m.get("ttlSeconds")) else {
         return DEFAULT_TTL_SECONDS;
     };
     let parsed: u64 = raw.parse().unwrap_or(0);
@@ -278,7 +274,11 @@ mod tests {
             10_000,
         );
         let spans = CacheTimer.render(&WidgetSpec::new("1", "cache-timer"), &ctx);
-        assert!(spans[0].text.contains(FRESH_DEFAULT), "got {:?}", spans[0].text);
+        assert!(
+            spans[0].text.contains(FRESH_DEFAULT),
+            "got {:?}",
+            spans[0].text
+        );
     }
 
     #[test]
@@ -338,7 +338,10 @@ mod tests {
         // to the 5-minute default.
         assert_eq!(ttl_seconds(&spec_with(&[("ttlSeconds", "3")])), 300);
         assert_eq!(ttl_seconds(&spec_with(&[("ttlSeconds", "0")])), 300);
-        assert_eq!(ttl_seconds(&spec_with(&[("ttlSeconds", "not-a-number")])), 300);
+        assert_eq!(
+            ttl_seconds(&spec_with(&[("ttlSeconds", "not-a-number")])),
+            300
+        );
     }
 
     #[test]

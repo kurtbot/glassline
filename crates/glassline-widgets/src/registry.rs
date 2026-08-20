@@ -8,20 +8,18 @@ use glassline_core::widget::Widget;
 
 use crate::builtins::{
     block_reset_timer, block_timer, cache_hit_rate, cache_read, cache_timer, cache_write,
-    claude_account_email, claude_session_id,
-    compaction_counter, context_bar, context_length, context_percentage, context_percentage_usable,
-    context_window, custom_command, custom_symbol, custom_text, cwd, extra_usage_remaining,
-    extra_usage_used, extra_usage_utilization, fable_weekly_usage, flex_separator, free_memory,
-    git_ahead_behind,
-    git_branch, git_changes, git_ci_status, git_clean_status, git_conflicts, git_deletions,
-    git_insertions, git_is_fork, git_origin_owner, git_origin_owner_repo, git_origin_repo, git_pr,
-    git_root_dir, git_sha, git_staged, git_staged_files, git_status, git_unstaged,
-    git_unstaged_files, git_untracked, git_untracked_files, git_upstream_owner,
-    git_upstream_owner_repo, git_upstream_repo, git_worktree, git_worktree_branch,
-    git_worktree_mode, git_worktree_name, git_worktree_original_branch, jj_bookmarks, jj_changes,
-    jj_deletions, jj_description, jj_insertions, jj_revision, jj_root_dir, jj_workspace, link,
-    model, output_style, remote_control_status, sandbox_status, separator, session_clock,
-    session_cost, session_name,
+    claude_account_email, claude_session_id, compaction_counter, context_bar, context_length,
+    context_percentage, context_percentage_usable, context_window, custom_command, custom_symbol,
+    custom_text, cwd, extra_usage_remaining, extra_usage_used, extra_usage_utilization,
+    fable_weekly_usage, flex_separator, free_memory, git_ahead_behind, git_branch, git_changes,
+    git_ci_status, git_clean_status, git_conflicts, git_deletions, git_insertions, git_is_fork,
+    git_origin_owner, git_origin_owner_repo, git_origin_repo, git_pr, git_root_dir, git_sha,
+    git_staged, git_staged_files, git_status, git_unstaged, git_unstaged_files, git_untracked,
+    git_untracked_files, git_upstream_owner, git_upstream_owner_repo, git_upstream_repo,
+    git_worktree, git_worktree_branch, git_worktree_mode, git_worktree_name,
+    git_worktree_original_branch, jj_bookmarks, jj_changes, jj_deletions, jj_description,
+    jj_insertions, jj_revision, jj_root_dir, jj_workspace, link, model, output_style,
+    remote_control_status, sandbox_status, separator, session_clock, session_cost, session_name,
     skills, speed, terminal_width, thinking_effort, tokens_cached, tokens_input, tokens_output,
     tokens_total, usage, version, vim_mode, voice_status,
 };
@@ -178,8 +176,7 @@ mod tests {
         // Alias keys must resolve, but the underlying widget's id() is
         // the canonical form — never the alias itself.
         for alias in ALIASES {
-            let widget =
-                resolve(alias).unwrap_or_else(|| panic!("alias {alias} unresolved"));
+            let widget = resolve(alias).unwrap_or_else(|| panic!("alias {alias} unresolved"));
             assert_ne!(
                 widget.id(),
                 *alias,

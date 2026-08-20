@@ -134,8 +134,14 @@ mod tests {
 
     #[test]
     fn glyph_default_labelled() {
-        assert_eq!(format_status(true, Format::Glyph, false, false), "SB: \u{25CF}");
-        assert_eq!(format_status(false, Format::Glyph, false, false), "SB: \u{25CB}");
+        assert_eq!(
+            format_status(true, Format::Glyph, false, false),
+            "SB: \u{25CF}"
+        );
+        assert_eq!(
+            format_status(false, Format::Glyph, false, false),
+            "SB: \u{25CB}"
+        );
     }
 
     #[test]
@@ -151,7 +157,10 @@ mod tests {
 
     #[test]
     fn word_format_spelled_out() {
-        assert_eq!(format_status(true, Format::Word, false, false), "Sandbox: ON");
+        assert_eq!(
+            format_status(true, Format::Word, false, false),
+            "Sandbox: ON"
+        );
         assert_eq!(
             format_status(false, Format::Word, false, false),
             "Sandbox: OFF"
@@ -160,7 +169,10 @@ mod tests {
 
     #[test]
     fn nerd_font_swaps_glyph_in_glyph_format() {
-        assert_eq!(format_status(true, Format::Glyph, true, false), "SB: \u{f023}");
+        assert_eq!(
+            format_status(true, Format::Glyph, true, false),
+            "SB: \u{f023}"
+        );
         assert_eq!(
             format_status(false, Format::Glyph, true, false),
             "SB: \u{f09c}"
