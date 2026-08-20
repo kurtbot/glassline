@@ -17,7 +17,7 @@ use glassline_core::{
 use glassline_widgets::resolve;
 use thiserror::Error;
 
-use crate::ansi::spans_to_string;
+use crate::{ansi::spans_to_string, flex};
 
 /// Compute the union of every visible widget's data requirements.
 ///
@@ -88,6 +88,14 @@ pub fn render_to_string(
             };
             line_spans.extend(render_one(widget.as_ref(), spec, &ctx));
         }
+        // Expand `flex-separator` sentinel spans to fill remaining terminal
+        // width. No-op when there are no sentinels on this line, terminal
+        // width is unknown, or powerline mode owns the layout.
+        flex::apply(
+            &mut line_spans,
+            ctx.terminal_width,
+            settings.powerline.enabled,
+        );
         let rendered = spans_to_string(&line_spans);
         if rendered.is_empty() {
             continue;

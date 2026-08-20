@@ -12,6 +12,7 @@
 pub mod ansi;
 pub mod config;
 pub mod demo;
+pub mod flex;
 pub mod import;
 pub mod install;
 pub mod pipeline;

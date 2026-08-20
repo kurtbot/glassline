@@ -217,6 +217,7 @@ fn apply_char_gradient(
                 underline: span.underline,
                 gradient_hint: true,
                 metadata_percent: None,
+                flex_hint: false,
             });
             idx += 1;
         }
@@ -263,6 +264,7 @@ fn apply_sweep_gradient(
                 underline: span.underline,
                 gradient_hint: true,
                 metadata_percent: None,
+                flex_hint: false,
             });
             idx += 1;
         }

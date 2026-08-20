@@ -30,6 +30,18 @@ pub struct StyledSpan {
     /// The ANSI writer already skips empty-text spans, so the hint span
     /// never contributes to visible output.
     pub metadata_percent: Option<f64>,
+    /// Marker for flex-align expansion.
+    ///
+    /// Emitted by the `flex-separator` widget (an empty-text sentinel) so
+    /// the render pipeline's `flex::apply` pass can find slots to
+    /// distribute remaining terminal width across. Ports upstream's
+    /// `FLEX_SENTINEL` renderer indirection into a typed field rather than
+    /// an in-band string sentinel.
+    ///
+    /// The ANSI writer skips empty-text spans, so a `flex_hint` sentinel
+    /// with an empty `text` renders nothing; `flex::apply` rewrites `text`
+    /// to N spaces before the writer sees the span.
+    pub flex_hint: bool,
 }
 
 impl StyledSpan {

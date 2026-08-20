@@ -18,6 +18,7 @@ pub mod custom_symbol;
 pub mod custom_text;
 pub mod cwd;
 pub mod extra_usage_remaining;
+pub mod flex_separator;
 pub mod extra_usage_used;
 pub mod extra_usage_utilization;
 pub mod fable_weekly_usage;
