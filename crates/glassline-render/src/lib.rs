@@ -15,6 +15,7 @@ pub mod demo;
 pub mod import;
 pub mod install;
 pub mod pipeline;
+pub mod render_cache;
 pub mod stdin_reader;
 pub mod transcript;
 pub mod usage;
