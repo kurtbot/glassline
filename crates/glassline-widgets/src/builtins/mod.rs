@@ -77,3 +77,4 @@ pub mod tokens_output;
 pub mod tokens_total;
 pub mod usage;
 pub mod version;
+pub mod vim_mode;
