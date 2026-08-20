@@ -190,10 +190,14 @@ fn is_glassline_entry(value: &Value) -> bool {
     let Some(cmd) = value.get("command").and_then(Value::as_str) else {
         return false;
     };
-    let leaf = Path::new(cmd)
+    // Cross-platform basename extraction: `Path::new` on Linux treats `\`
+    // as a literal char, so a Windows-style `C:\...\glassline.exe` stays
+    // one segment. Split on BOTH separators before `Path::file_stem`.
+    let last_component = cmd.rsplit(['\\', '/']).next().unwrap_or(cmd);
+    let leaf = Path::new(last_component)
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or(cmd);
+        .unwrap_or(last_component);
     leaf.eq_ignore_ascii_case("glassline")
 }
 

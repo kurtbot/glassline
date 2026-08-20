@@ -31,6 +31,10 @@ confidence-threshold = 0.8
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace-internal deps use `path = "..."` without a version, which
+# cargo-deny classifies as wildcard. That's the intended way to link
+# workspace members — allow it. External-crate wildcards are still denied.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
