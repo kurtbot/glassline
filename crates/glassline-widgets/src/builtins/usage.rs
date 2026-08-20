@@ -13,7 +13,7 @@ use glassline_core::{
     widget::{Widget, WidgetRequirements},
 };
 
-use crate::common::{DurationFormat, format_duration_ms, is_raw, styled};
+use crate::common::{DurationFormat, duration_until_iso_ms, format_duration_ms, is_raw, styled};
 
 // --------- percentage widgets ---------
 
@@ -153,19 +153,6 @@ fn error_text(label: &str, err: UsageError, raw: bool) -> String {
     } else {
         format!("{label}{msg}")
     }
-}
-
-/// Milliseconds until an RFC3339 timestamp elapses; `None` on parse failure
-/// or past-timestamp.
-fn duration_until_iso_ms(iso: &str) -> Option<u64> {
-    let ts =
-        time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).ok()?;
-    let now = time::OffsetDateTime::now_utc();
-    let d = ts - now;
-    if d.is_negative() {
-        return Some(0);
-    }
-    Some(d.whole_milliseconds().max(0) as u64)
 }
 
 #[cfg(test)]

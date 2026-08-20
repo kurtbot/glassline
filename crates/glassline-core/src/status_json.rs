@@ -19,6 +19,9 @@ use serde_json::Value;
 pub struct StatusJson {
     pub hook_event_name: Option<String>,
     pub session_id: Option<String>,
+    /// Human-friendly session label (Claude Code sets this when the user
+    /// or the tool has named the session). Optional.
+    pub session_name: Option<String>,
     pub transcript_path: Option<String>,
     pub cwd: Option<String>,
     pub model: Option<ModelInfo>,

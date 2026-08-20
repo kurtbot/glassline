@@ -263,6 +263,37 @@ pub fn format_duration_ms(ms: u64, fmt: DurationFormat) -> String {
     parts.join(sep)
 }
 
+/// Milliseconds until an RFC3339 timestamp elapses; `None` on parse failure.
+/// `Some(0)` for past-timestamps (the widget layer decides how to render
+/// "already elapsed" — timer-style widgets show "0m", countdown widgets may
+/// switch labels).
+#[must_use]
+pub fn duration_until_iso_ms(iso: &str) -> Option<u64> {
+    let ts =
+        time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).ok()?;
+    let now = time::OffsetDateTime::now_utc();
+    let d = ts - now;
+    if d.is_negative() {
+        return Some(0);
+    }
+    Some(d.whole_milliseconds().max(0) as u64)
+}
+
+/// Milliseconds since an RFC3339 timestamp elapsed. Mirror of
+/// [`duration_until_iso_ms`] pointing in the opposite direction. `None`
+/// on parse failure; `Some(0)` when the timestamp is in the future.
+#[must_use]
+pub fn duration_since_iso_ms(iso: &str) -> Option<u64> {
+    let ts =
+        time::OffsetDateTime::parse(iso, &time::format_description::well_known::Rfc3339).ok()?;
+    let now = time::OffsetDateTime::now_utc();
+    let d = now - ts;
+    if d.is_negative() {
+        return Some(0);
+    }
+    Some(d.whole_milliseconds().max(0) as u64)
+}
+
 /// Default context window size when we can't derive one from Claude Code —
 /// matches TS `MODEL_CONTEXT_DEFAULT_TOKENS`.
 ///
