@@ -1,15 +1,11 @@
 //! Live-preview primitive. Feeds a caller-supplied [`RenderContext`]
 //! and [`Settings`] through the real render pipeline
 //! ([`glassline_render::render_to_string`]) so what the user sees
-//! matches exactly what the hot path would produce.
-//!
-//! v1.0 strips ANSI escape sequences for display — style fidelity in
-//! the preview is deferred until an ANSI-to-Text parser is on hand.
-//! The important guarantee is *layout* fidelity: widget widths,
-//! ordering, separator behaviour, flex-align, powerline, all identical
-//! to the hot path.
+//! matches exactly what the hot path would produce — colors, bold,
+//! and dim included via `ansi-to-tui`.
 
-use ratatui::{Frame, layout::Rect, widgets::Paragraph};
+use ansi_to_tui::IntoText;
+use ratatui::{Frame, layout::Rect, text::Text, widgets::Paragraph};
 
 use glassline_core::{render_context::RenderContext, settings::Settings};
 use glassline_render::render_to_string;
@@ -41,15 +37,15 @@ where
     /// Render into `area`. Errors from the pipeline (e.g. an invalid
     /// widget config) surface as a single-line `[preview error: ...]`
     /// row rather than propagating — the preview must never crash the
-    /// editor.
+    /// editor. Colors + attributes ride through via `ansi-to-tui`.
     pub fn render(&self, area: Rect, frame: &mut Frame) {
         let ctx = (self.ctx_fn)();
         let settings = (self.settings_fn)();
-        let rendered = match render_to_string(ctx, &settings) {
-            Ok(s) => strip_ansi(&s),
-            Err(e) => format!("[preview error: {e}]"),
+        let text: Text<'_> = match render_to_string(ctx, &settings) {
+            Ok(s) => s.into_text().unwrap_or_else(|_| Text::from(strip_ansi(&s))),
+            Err(e) => Text::from(format!("[preview error: {e}]")),
         };
-        frame.render_widget(Paragraph::new(rendered), area);
+        frame.render_widget(Paragraph::new(text), area);
     }
 }
 

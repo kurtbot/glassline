@@ -54,6 +54,7 @@ time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
 # `crossterm` workspace dep.
 ratatui = "0.30"
 tui-input = "0.15"
+ansi-to-tui = "8"
 
 # Test-only
 insta = { version = "1", features = ["yaml", "json", "redactions"] }
