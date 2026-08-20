@@ -317,8 +317,16 @@ pub fn get_git_origin(ctx: &RenderContext) -> Option<GitRemote> {
         && let Some(ws) = data.workspace.as_ref()
         && let Some(native) = ws.repo.as_ref()
     {
-        let owner = native.owner.as_deref().map(str::trim).filter(|s| !s.is_empty());
-        let name = native.name.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let owner = native
+            .owner
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
+        let name = native
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         if let (Some(owner), Some(name)) = (owner, name) {
             return Some(GitRemote {
                 owner: owner.to_string(),
@@ -344,7 +352,11 @@ pub fn get_git_origin_host(ctx: &RenderContext) -> Option<String> {
     if let Some(data) = ctx.data.as_ref()
         && let Some(ws) = data.workspace.as_ref()
         && let Some(native) = ws.repo.as_ref()
-        && let Some(host) = native.host.as_deref().map(str::trim).filter(|s| !s.is_empty())
+        && let Some(host) = native
+            .host
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
     {
         return Some(host.to_string());
     }
@@ -646,7 +658,11 @@ mod tests {
 
     // ---- get_git_origin / get_git_origin_host (native fast path) ----
 
-    fn ctx_with_native_repo(host: Option<&str>, owner: Option<&str>, name: Option<&str>) -> RenderContext {
+    fn ctx_with_native_repo(
+        host: Option<&str>,
+        owner: Option<&str>,
+        name: Option<&str>,
+    ) -> RenderContext {
         use glassline_core::status_json::WorkspaceRepo;
         RenderContext {
             data: Some(StatusJson {

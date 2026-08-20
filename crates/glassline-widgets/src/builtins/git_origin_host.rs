@@ -97,7 +97,10 @@ mod tests {
             ..Default::default()
         };
         let spans = GitOriginHost.render(&spec, &ctx);
-        assert!(spans.is_empty(), "expected no spans when hideNoGit + not in git, got {spans:?}");
+        assert!(
+            spans.is_empty(),
+            "expected no spans when hideNoGit + not in git, got {spans:?}"
+        );
     }
 
     #[test]
