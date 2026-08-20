@@ -32,14 +32,17 @@ env:
 
 jobs:
   create-release:
-    name: Draft GitHub Release
+    name: Publish GitHub Release
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: taiki-e/create-gh-release-action@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          draft: true
+          # Publish immediately so users can download binaries without
+          # the maintainer having to click "Publish" on a draft. Release
+          # notes can still be edited post-hoc via the GitHub UI.
+          draft: false
 
   upload-assets:
     name: Build ${{ matrix.target }}
