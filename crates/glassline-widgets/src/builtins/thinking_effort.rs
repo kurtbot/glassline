@@ -1,10 +1,14 @@
 //! `thinking-effort` — renders the current effort level (low/medium/high/
 //! xhigh/max) or `default` when unknown. Port of TS `ThinkingEffort.ts`.
 //!
-//! **MVP scope:** honours `StatusJson.effort.level` only. TS's fallback
-//! chain — transcript last-line `<local-command-stdout>Set effort level
-//! to X` scan and `~/.claude/settings.json`'s `effortLevel` field — is
-//! deferred to T-1.7d.
+//! # Fallback chain
+//!
+//! 1. `StatusJson.effort.level` (Claude Code's authoritative value).
+//! 2. `ctx.last_effort_level` — populated by the transcript scanner from
+//!    a `<local-command-stdout>Set effort level to X` marker. `None`
+//!    until the scanner extension lands.
+//! 3. `~/.claude/settings.json` `effortLevel` field — read on demand.
+//! 4. Literal `default`.
 
 use glassline_core::{
     render_context::RenderContext,
@@ -39,7 +43,9 @@ impl Widget for ThinkingEffort {
             .data
             .as_ref()
             .and_then(|d| d.effort.as_ref())
-            .and_then(|e| e.level.clone());
+            .and_then(|e| e.level.clone())
+            .or_else(|| ctx.last_effort_level.clone())
+            .or_else(read_effort_from_settings_json);
         let effort = match raw_level.map(|s| s.to_lowercase()) {
             None => "default".to_string(),
             Some(level) if KNOWN.contains(&level.as_str()) => level,
@@ -53,6 +59,21 @@ impl Widget for ThinkingEffort {
         };
         styled(spec, text)
     }
+}
+
+/// Read the `effortLevel` field from `~/.claude/settings.json`. `None`
+/// when the file doesn't exist, is malformed, or lacks the field.
+fn read_effort_from_settings_json() -> Option<String> {
+    let home = std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME"))?;
+    let path = std::path::PathBuf::from(home)
+        .join(".claude")
+        .join("settings.json");
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let parsed: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    parsed
+        .get("effortLevel")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
 }
 
 /// Mirror of TS `UNKNOWN_EFFORT_PATTERN = /^(?=.*[a-z0-9])[a-z0-9-]{2,20}$/`.
@@ -110,12 +131,33 @@ mod tests {
 
     #[test]
     fn absent_level_renders_default() {
+        // Force HOME/USERPROFILE to a nonexistent dir so the new
+        // settings.json fallback (~/.claude/settings.json) misses and
+        // the widget falls through to the literal "default".
+        let _guard = crate::common::TEST_ENV_LOCK.lock().unwrap();
+        let saved_home = std::env::var_os("HOME");
+        let saved_up = std::env::var_os("USERPROFILE");
+        unsafe {
+            std::env::set_var("HOME", "/no/such/dir/glassline-test");
+            std::env::set_var("USERPROFILE", "/no/such/dir/glassline-test");
+        }
         let spans = ThinkingEffort.render(&WidgetSpec::new("1", "thinking-effort"), &ctx(None));
+        unsafe {
+            match saved_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            match saved_up {
+                Some(v) => std::env::set_var("USERPROFILE", v),
+                None => std::env::remove_var("USERPROFILE"),
+            }
+        }
         assert_eq!(spans[0].text, "Thinking: default");
     }
 
     #[test]
     fn raw_drops_label() {
+        let _guard = crate::common::TEST_ENV_LOCK.lock().unwrap();
         let mut spec = WidgetSpec::new("1", "thinking-effort");
         spec.raw_value = Some(true);
         let spans = ThinkingEffort.render(&spec, &ctx(Some("medium")));
@@ -124,8 +166,27 @@ mod tests {
 
     #[test]
     fn junk_input_renders_default() {
+        // Same env-var guard as absent_level_renders_default — junk
+        // level → settings.json fallback runs → must miss.
+        let _guard = crate::common::TEST_ENV_LOCK.lock().unwrap();
+        let saved_home = std::env::var_os("HOME");
+        let saved_up = std::env::var_os("USERPROFILE");
+        unsafe {
+            std::env::set_var("HOME", "/no/such/dir/glassline-test");
+            std::env::set_var("USERPROFILE", "/no/such/dir/glassline-test");
+        }
         let spans =
             ThinkingEffort.render(&WidgetSpec::new("1", "thinking-effort"), &ctx(Some("!!!")));
+        unsafe {
+            match saved_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            match saved_up {
+                Some(v) => std::env::set_var("USERPROFILE", v),
+                None => std::env::remove_var("USERPROFILE"),
+            }
+        }
         assert_eq!(spans[0].text, "Thinking: default");
     }
 }

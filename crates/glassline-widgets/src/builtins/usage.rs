@@ -124,7 +124,8 @@ impl Widget for WeeklyResetTimer {
         let Some(duration_ms) = duration_until_iso_ms(iso) else {
             return Vec::new();
         };
-        let formatted = format_duration_ms(duration_ms, DurationFormat::default());
+        let fmt = DurationFormat::from_metadata(DurationFormat::default(), spec);
+        let formatted = format_duration_ms(duration_ms, fmt);
         let text = if is_raw(spec) {
             formatted
         } else {
@@ -249,7 +250,7 @@ mod tests {
                 DurationFormat {
                     use_days: false,
                     ..DurationFormat::default()
-                }
+                },
             ),
             "27hr"
         );

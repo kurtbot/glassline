@@ -42,14 +42,14 @@ impl Widget for BlockTimer {
         let Some(ms) = duration_since_iso_ms(started_at) else {
             return Vec::new();
         };
-        let formatted = format_duration_ms(
-            ms,
-            DurationFormat {
-                compact: false,
-                use_days: false,
-                less_than_min: true,
-            },
-        );
+        let base = DurationFormat {
+            compact: false,
+            use_days: false,
+            less_than_min: true,
+            show_seconds: false,
+        };
+        let fmt = DurationFormat::from_metadata(base, spec);
+        let formatted = format_duration_ms(ms, fmt);
         let text = if is_raw(spec) {
             formatted
         } else {

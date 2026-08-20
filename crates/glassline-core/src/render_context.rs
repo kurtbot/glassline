@@ -26,6 +26,11 @@ pub struct RenderContext {
     pub block_metrics: Option<BlockMetrics>,
     pub skills_metrics: Option<SkillsMetrics>,
     pub compaction_data: Option<CompactionData>,
+    /// Most recent `<local-command-stdout>Set effort level to X` marker
+    /// found by the transcript scanner. `None` when the scanner isn't
+    /// wired to look for it yet (Tier J follow-up). Widgets use this
+    /// as a fallback for `StatusJson.effort.level`.
+    pub last_effort_level: Option<String>,
     pub terminal_width: Option<usize>,
     pub is_preview: bool,
     pub minimalist: bool,

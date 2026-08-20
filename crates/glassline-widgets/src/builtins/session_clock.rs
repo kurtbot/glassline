@@ -62,6 +62,7 @@ fn session_clock_fmt() -> DurationFormat {
         compact: false,
         use_days: false,
         less_than_min: true,
+        ..DurationFormat::default()
     }
 }
 

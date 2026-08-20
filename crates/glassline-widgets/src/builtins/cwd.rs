@@ -1,10 +1,15 @@
 //! `current-working-dir` — displays the working directory, optionally
-//! abbreviated to `~`. Port of TS `CurrentWorkingDir.tsx`.
+//! abbreviated. Port of TS `CurrentWorkingDir.tsx`.
 //!
-//! **Deferred:** `fish-style` compression + `segments: N` truncation — those
-//! rely on OS-specific home-dir detection + slash-split logic that add ~150
-//! LOC. The MVP handles the abbreviateHome case; segments/fish arrive with
-//! T-1.7b if any of the user's fixtures actually set them.
+//! # Metadata
+//!
+//! - `abbreviateHome=true` — replace `$HOME` prefix with `~`.
+//! - `fishStyle=true` — abbreviate every non-terminal segment to its
+//!   first character (`/home/kurt/repos/glassline` → `/h/k/r/glassline`).
+//!   Combines with `abbreviateHome`: `~/repos/glassline` → `~/r/glassline`.
+//! - `segments=N` — keep only the last N path segments; longer paths get
+//!   a leading `…/` prefix. `0` disables (default). Applied after
+//!   `abbreviateHome` and `fishStyle`.
 
 use glassline_core::{
     render_context::RenderContext,
@@ -44,18 +49,82 @@ impl Widget for CurrentWorkingDir {
         let Some(cwd) = cwd else {
             return Vec::new();
         };
-        let abbreviate = spec
-            .metadata
-            .as_ref()
-            .and_then(|m| m.get("abbreviateHome"))
-            .is_some_and(|v| v == "true");
-        let text = if abbreviate {
+        let meta = |k: &str| spec.metadata.as_ref().and_then(|m| m.get(k)).cloned();
+        let bool_of = |k: &str| meta(k).is_some_and(|v| v == "true");
+
+        let mut text = if bool_of("abbreviateHome") {
             abbreviate_home(&cwd)
         } else {
             cwd
         };
+        if bool_of("fishStyle") {
+            text = fish_style(&text);
+        }
+        if let Some(n) = meta("segments").and_then(|v| v.parse::<usize>().ok())
+            && n > 0
+        {
+            text = trim_to_last_segments(&text, n);
+        }
         styled(spec, text)
     }
+}
+
+/// Abbreviate every non-terminal segment to its first character.
+/// Preserves a leading `~` or drive letter. Non-ASCII segments take
+/// their first Unicode scalar; hidden segments (starting with `.`)
+/// keep the dot plus their first non-dot char (`.config` → `.c`).
+fn fish_style(path: &str) -> String {
+    // Detect the separator by looking at what's actually in the path.
+    let sep = if path.contains('\\') && !path.contains('/') {
+        '\\'
+    } else {
+        '/'
+    };
+    let parts: Vec<&str> = path.split(sep).collect();
+    if parts.len() <= 1 {
+        return path.to_string();
+    }
+    let last_idx = parts.len() - 1;
+    let mut abbreviated: Vec<String> = Vec::with_capacity(parts.len());
+    for (i, part) in parts.iter().enumerate() {
+        if i == last_idx || part.is_empty() {
+            abbreviated.push((*part).to_string());
+            continue;
+        }
+        // Preserve `~`, drive letters (`C:`).
+        if *part == "~" || part.ends_with(':') {
+            abbreviated.push((*part).to_string());
+            continue;
+        }
+        let head: String = if let Some(rest) = part.strip_prefix('.') {
+            // `.config` → `.c`
+            let mut s = String::from(".");
+            if let Some(c) = rest.chars().next() {
+                s.push(c);
+            }
+            s
+        } else {
+            part.chars().take(1).collect()
+        };
+        abbreviated.push(head);
+    }
+    abbreviated.join(&sep.to_string())
+}
+
+/// Keep only the last `n` path segments; longer paths get a leading
+/// `…/` prefix. Uses the same separator inference as [`fish_style`].
+fn trim_to_last_segments(path: &str, n: usize) -> String {
+    let sep = if path.contains('\\') && !path.contains('/') {
+        '\\'
+    } else {
+        '/'
+    };
+    let parts: Vec<&str> = path.split(sep).collect();
+    if parts.len() <= n {
+        return path.to_string();
+    }
+    let tail = &parts[parts.len() - n..];
+    format!("\u{2026}{sep}{}", tail.join(&sep.to_string()))
 }
 
 fn abbreviate_home(path: &str) -> String {
@@ -137,6 +206,58 @@ mod tests {
             &RenderContext::default(),
         );
         assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn fish_style_shortens_all_but_last_segment() {
+        assert_eq!(fish_style("/home/kurt/repos/glassline"), "/h/k/r/glassline");
+    }
+
+    #[test]
+    fn fish_style_preserves_tilde() {
+        assert_eq!(fish_style("~/repos/glassline"), "~/r/glassline");
+    }
+
+    #[test]
+    fn fish_style_handles_hidden_segments() {
+        assert_eq!(
+            fish_style("/home/kurt/.config/glassline"),
+            "/h/k/.c/glassline"
+        );
+    }
+
+    #[test]
+    fn fish_style_preserves_drive_letter_windows() {
+        assert_eq!(
+            fish_style("C:\\Users\\kurt\\repos\\glassline"),
+            "C:\\U\\k\\r\\glassline"
+        );
+    }
+
+    #[test]
+    fn fish_style_no_op_on_single_segment() {
+        assert_eq!(fish_style("glassline"), "glassline");
+    }
+
+    #[test]
+    fn trim_to_last_segments_shortens_when_longer() {
+        assert_eq!(
+            trim_to_last_segments("/home/kurt/repos/glassline", 2),
+            "\u{2026}/repos/glassline"
+        );
+    }
+
+    #[test]
+    fn trim_to_last_segments_no_op_when_shorter() {
+        assert_eq!(trim_to_last_segments("/home/kurt", 5), "/home/kurt");
+    }
+
+    #[test]
+    fn trim_to_last_segments_windows_path() {
+        assert_eq!(
+            trim_to_last_segments("C:\\Users\\kurt\\repos\\glassline", 2),
+            "\u{2026}\\repos\\glassline"
+        );
     }
 
     #[test]

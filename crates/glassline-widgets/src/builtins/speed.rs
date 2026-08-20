@@ -3,9 +3,11 @@
 //! `InputSpeed.ts` / `OutputSpeed.ts` / `TotalSpeed.ts` (which share the
 //! `renderSpeedWidgetValue` helper).
 //!
-//! MVP scope: **session average only**. Per-widget windowed metrics
-//! (via `metadata.speedWindow`) are deferred to T-1.7d alongside the
-//! windowed variants in the transcript scanner.
+//! When `metadata.speedWindow` is set (e.g. `"5m"`, `"1h"`), the widget
+//! reads the matching entry from `ctx.windowed_speed_metrics`. If the
+//! window key isn't present, falls back to `ctx.speed_metrics` (session
+//! average). Windowed keys are populated by the render binary's
+//! transcript scanner — this widget just reads them.
 
 use glassline_core::{
     render_context::{RenderContext, SpeedMetrics},
@@ -61,13 +63,32 @@ impl Widget for SpeedWidget {
         Some("cyan")
     }
     fn render(&self, spec: &WidgetSpec, ctx: &RenderContext) -> Vec<StyledSpan> {
-        let Some(metrics) = ctx.speed_metrics.as_ref() else {
+        let metrics = pick_metrics(spec, ctx);
+        let Some(metrics) = metrics else {
             return Vec::new();
         };
         let value = self.0.compute(metrics);
         let formatted = format_speed(value);
         styled(spec, labeled_or_raw(spec, self.0.label(), &formatted))
     }
+}
+
+/// Resolve which `SpeedMetrics` snapshot the widget should read.
+///
+/// Preference order:
+/// 1. `ctx.windowed_speed_metrics[metadata.speedWindow]` when the key is
+///    set on the widget AND the map contains it.
+/// 2. `ctx.speed_metrics` (session average) — falls through when the
+///    windowed key is missing, so widgets never silently render nothing
+///    just because the scanner didn't compute the requested window.
+fn pick_metrics<'a>(spec: &WidgetSpec, ctx: &'a RenderContext) -> Option<&'a SpeedMetrics> {
+    if let Some(window_key) = spec.metadata.as_ref().and_then(|m| m.get("speedWindow"))
+        && let Some(map) = ctx.windowed_speed_metrics.as_ref()
+        && let Some(m) = map.get(window_key)
+    {
+        return Some(m);
+    }
+    ctx.speed_metrics.as_ref()
 }
 
 pub fn input_factory() -> Box<dyn Widget> {

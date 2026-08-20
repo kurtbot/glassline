@@ -197,7 +197,8 @@ fn finite_non_negative(v: Option<f64>) -> Option<f64> {
 /// Options for [`format_duration_ms`]. Different widgets want different
 /// tradeoffs — session-clock shows `<1m` because "0m" reads as broken, while
 /// usage-reset timers use `0m` for "resets now". See [[widget_parity_design_v1.1]]
-/// §4.11 F2 for the consolidation rationale.
+/// §4.11 F2 for the consolidation rationale and §4.10 for the metadata
+/// knobs that timer widgets expose to `settings.json`.
 #[derive(Debug, Clone, Copy)]
 pub struct DurationFormat {
     /// `true` → `1h 2m`, `false` → `1hr 2m` (matches TS default).
@@ -206,6 +207,9 @@ pub struct DurationFormat {
     pub use_days: bool,
     /// Sub-minute behavior. `true` → `<1m` (session-clock), `false` → `0m` (usage timer).
     pub less_than_min: bool,
+    /// `true` → render sub-minute durations as `Ns` (secs) instead of
+    /// `<1m` / `0m`. Above one minute this is a no-op.
+    pub show_seconds: bool,
 }
 
 impl Default for DurationFormat {
@@ -214,7 +218,41 @@ impl Default for DurationFormat {
             compact: false,
             use_days: true,
             less_than_min: false,
+            show_seconds: false,
         }
+    }
+}
+
+impl DurationFormat {
+    /// Read the metadata knobs common to reset-timer / block-timer widgets:
+    ///
+    /// - `metadata.compact` (bool) → `compact`
+    /// - `metadata.useDays` (bool) → `use_days` (defaults to `true` in
+    ///   the caller-supplied base).
+    /// - `metadata.hoursOnly` (bool) → forces `use_days = false` when true.
+    /// - `metadata.showSeconds` (bool) → `show_seconds`
+    ///
+    /// Base values that aren't in metadata come from `base`.
+    #[must_use]
+    pub fn from_metadata(base: Self, spec: &WidgetSpec) -> Self {
+        let mut out = base;
+        let Some(meta) = spec.metadata.as_ref() else {
+            return out;
+        };
+        let bool_of = |k: &str| meta.get(k).map(|v| v == "true");
+        if let Some(b) = bool_of("compact") {
+            out.compact = b;
+        }
+        if let Some(b) = bool_of("useDays") {
+            out.use_days = b;
+        }
+        if let Some(true) = bool_of("hoursOnly") {
+            out.use_days = false;
+        }
+        if let Some(b) = bool_of("showSeconds") {
+            out.show_seconds = b;
+        }
+        out
     }
 }
 
@@ -224,6 +262,10 @@ impl Default for DurationFormat {
 #[must_use]
 pub fn format_duration_ms(ms: u64, fmt: DurationFormat) -> String {
     if ms < 60_000 {
+        if fmt.show_seconds {
+            let secs = ms / 1000;
+            return format!("{secs}s");
+        }
         return if fmt.less_than_min {
             "<1m".to_string()
         } else {

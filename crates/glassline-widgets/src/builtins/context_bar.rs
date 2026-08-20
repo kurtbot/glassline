@@ -1,7 +1,13 @@
 //! `context-bar` — a filled/empty block bar showing context-window usage.
-//! Port of TS `ContextBar.ts` with the `progress` and `progress-short` display
-//! modes. The `slider` / `slider-only` variants are deferred to T-1.7d
-//! alongside the rest of the slider family.
+//! Port of TS `ContextBar.ts`. Supported display modes (per
+//! `metadata.display`):
+//!
+//! | Mode | Width | Label | Notes |
+//! |---|---|---|---|
+//! | `progress-short` (default) | 16 | `used/total (pct%)` | filled block bar `[███░░░]` |
+//! | `progress` | 32 | `used/total (pct%)` | same, wider |
+//! | `slider` | 16 | `used/total (pct%)` | caret bar `[───●───]` |
+//! | `slider-only` | 16 | none | same caret, no numeric label |
 
 use glassline_core::{
     render_context::RenderContext,
@@ -47,22 +53,30 @@ impl Widget for ContextBar {
         }
 
         let percent = (used as f64 / total as f64 * 100.0).clamp(0.0, 100.0);
-        let width = match spec
+        let mode = spec
             .metadata
             .as_ref()
             .and_then(|m| m.get("display"))
             .map(String::as_str)
-        {
-            Some("progress") => 32,
-            _ => 16, // progress-short is the TS default
+            .unwrap_or("progress-short");
+        let (bar, include_label) = match mode {
+            "progress" => (make_progress_bar(percent, 32), true),
+            "slider" => (make_slider_bar(percent, 16), true),
+            "slider-only" => (make_slider_bar(percent, 16), false),
+            // Anything else falls through to the TS default.
+            _ => (make_progress_bar(percent, 16), true),
         };
-        let bar = make_bar(percent, width);
-        let display = format!(
-            "{bar} {used_disp}/{total_disp} ({pct}%)",
-            used_disp = format_tokens(used, 0),
-            total_disp = format_tokens(total, 0),
-            pct = percent.round() as u32,
-        );
+
+        let display = if include_label {
+            format!(
+                "{bar} {used_disp}/{total_disp} ({pct}%)",
+                used_disp = format_tokens(used, 0),
+                total_disp = format_tokens(total, 0),
+                pct = percent.round() as u32,
+            )
+        } else {
+            bar
+        };
         let text = if is_raw(spec) {
             display
         } else {
@@ -72,7 +86,8 @@ impl Widget for ContextBar {
     }
 }
 
-fn make_bar(percent: f64, width: usize) -> String {
+/// Filled/empty block bar: `[███░░░]`.
+fn make_progress_bar(percent: f64, width: usize) -> String {
     let filled = ((percent / 100.0) * width as f64).round() as usize;
     let filled = filled.min(width);
     let empty = width - filled;
@@ -83,6 +98,23 @@ fn make_bar(percent: f64, width: usize) -> String {
     }
     for _ in 0..empty {
         s.push('░');
+    }
+    s.push(']');
+    s
+}
+
+/// Caret bar: `[───●───]`. Caret position is `percent` of `width`.
+fn make_slider_bar(percent: f64, width: usize) -> String {
+    let pos = ((percent / 100.0) * width as f64).round() as usize;
+    let pos = pos.min(width.saturating_sub(1));
+    let mut s = String::with_capacity(width + 2);
+    s.push('[');
+    for i in 0..width {
+        if i == pos {
+            s.push('\u{25CF}'); // ●
+        } else {
+            s.push('\u{2500}'); // ─
+        }
     }
     s.push(']');
     s
@@ -157,6 +189,56 @@ mod tests {
         let bar_end = text.find(']').unwrap();
         let bar_chars = text[bar_start + 1..bar_end].chars().count();
         assert_eq!(bar_chars, 32);
+    }
+
+    #[test]
+    fn slider_mode_renders_caret() {
+        let mut spec = WidgetSpec::new("1", "context-bar");
+        spec.metadata = Some(
+            [("display".to_string(), "slider".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        let ctx = RenderContext {
+            token_metrics: Some(TokenMetrics {
+                context_length: 100_000,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let spans = ContextBar.render(&spec, &ctx);
+        let text = &spans[0].text;
+        assert!(text.starts_with("Context: ["));
+        assert!(text.contains('\u{25CF}'), "slider caret missing in {text}");
+        assert!(text.contains("100k/200k"));
+    }
+
+    #[test]
+    fn slider_only_drops_numeric_label() {
+        let mut spec = WidgetSpec::new("1", "context-bar");
+        spec.metadata = Some(
+            [("display".to_string(), "slider-only".to_string())]
+                .into_iter()
+                .collect(),
+        );
+        let ctx = RenderContext {
+            token_metrics: Some(TokenMetrics {
+                context_length: 100_000,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let spans = ContextBar.render(&spec, &ctx);
+        let text = &spans[0].text;
+        assert!(text.contains('\u{25CF}'), "slider caret missing in {text}");
+        assert!(
+            !text.contains('/'),
+            "slider-only should not include the numeric label: {text}"
+        );
+        assert!(
+            !text.contains('%'),
+            "slider-only should not include the pct label: {text}"
+        );
     }
 
     #[test]

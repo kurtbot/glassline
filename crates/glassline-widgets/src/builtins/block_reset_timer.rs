@@ -43,8 +43,9 @@ impl Widget for BlockResetTimer {
         };
         // Block windows never span days, but keep use_days: true to match
         // the shared usage-timer default in case a session survives across
-        // an unusually long clock jump.
-        let formatted = format_duration_ms(ms, DurationFormat::default());
+        // an unusually long clock jump. Metadata can override.
+        let fmt = DurationFormat::from_metadata(DurationFormat::default(), spec);
+        let formatted = format_duration_ms(ms, fmt);
         let text = if is_raw(spec) {
             formatted
         } else {
