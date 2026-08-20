@@ -18,6 +18,18 @@ pub struct StyledSpan {
     /// Marks this span as part of a gradient sweep; the writer uses the
     /// gradient stored on the parent widget spec to color characters.
     pub gradient_hint: bool,
+    /// Percent hint for animation effects.
+    ///
+    /// Widgets whose rendered text is NOT a percent (`context-length`
+    /// shows `Ctx: 78.6k`, tokens/cache widgets show token counts) attach
+    /// a zero-width sentinel span carrying `metadata_percent = Some(pct)`
+    /// so `animate.rs`'s `thresholds` and `pulseAbove` effects can fire
+    /// based on the widget's underlying percent even when the display
+    /// doesn't contain a literal `%` character.
+    ///
+    /// The ANSI writer already skips empty-text spans, so the hint span
+    /// never contributes to visible output.
+    pub metadata_percent: Option<f64>,
 }
 
 impl StyledSpan {

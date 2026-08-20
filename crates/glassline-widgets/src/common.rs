@@ -18,6 +18,7 @@ pub static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use glassline_core::{
     color::Color,
+    render_context::RenderContext,
     settings::{DimSetting, WidgetSpec},
     span::StyledSpan,
     status_json::{ContextWindow, CurrentUsage, StatusJson},
@@ -46,6 +47,49 @@ pub fn format_tokens(count: u64, decimals: u32) -> String {
         return format!("{value:.dec$}k", dec = decimals as usize, value = value,);
     }
     count.to_string()
+}
+
+/// Context-window occupancy as a percent (0.0..=100.0), or `None` when
+/// no signal is available.
+///
+/// Prefers `StatusJson.context_window.used_percentage` when live status
+/// carries it; otherwise falls back to
+/// `context_length_tokens / window_size * 100`. Used by widgets whose
+/// visible text is a token count (not a percent) to attach a
+/// [`percent_hint_span`] so `animate.rs`'s `thresholds` and `pulseAbove`
+/// effects can still fire.
+#[must_use]
+pub fn context_window_percent(ctx: &RenderContext) -> Option<f64> {
+    let metrics = context_window_metrics(ctx.data.as_ref());
+    if let Some(pct) = metrics.used_percentage {
+        return Some(pct.clamp(0.0, 100.0));
+    }
+    let tokens = metrics
+        .context_length_tokens
+        .or_else(|| ctx.token_metrics.as_ref().map(|m| m.context_length))?;
+    let window = metrics
+        .window_size
+        .unwrap_or_else(default_context_window_size);
+    if window == 0 {
+        return None;
+    }
+    Some((tokens as f64 / window as f64 * 100.0).min(100.0))
+}
+
+/// Zero-width sentinel span carrying an animation percent hint.
+///
+/// Widgets whose displayed text is not a percent (`context-length`,
+/// `tokens-*`, `cache-*`) append this at the tail of their span vec so
+/// `animate.rs::extract_percent` finds the value before falling through
+/// to the text-scan path. The ANSI writer skips empty-text spans, so
+/// the hint never contributes to visible output.
+#[must_use]
+pub fn percent_hint_span(pct: f64) -> StyledSpan {
+    StyledSpan {
+        text: String::new(),
+        metadata_percent: Some(pct),
+        ..StyledSpan::default()
+    }
 }
 
 /// Wrap `value` in `label` unless the spec asks for the raw form.

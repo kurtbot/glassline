@@ -10,7 +10,10 @@ use glassline_core::{
     widget::{Widget, WidgetRequirements},
 };
 
-use crate::common::{context_window_metrics, format_tokens, is_raw, styled};
+use crate::common::{
+    context_window_metrics, context_window_percent, format_tokens, is_raw, percent_hint_span,
+    styled,
+};
 
 pub fn factory() -> Box<dyn Widget> {
     Box::new(ContextLength)
@@ -42,7 +45,15 @@ impl Widget for ContextLength {
         } else {
             format!("Ctx: {formatted}")
         };
-        styled(spec, text)
+        let mut spans = styled(spec, text);
+        // Widget's visible text has no `%` — attach the hint so
+        // animate.rs `thresholds` / `pulseAbove` can fire on high context.
+        if !spans.is_empty()
+            && let Some(pct) = context_window_percent(ctx)
+        {
+            spans.push(percent_hint_span(pct));
+        }
+        spans
     }
 }
 

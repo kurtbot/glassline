@@ -28,9 +28,11 @@ use glassline_core::{
 };
 use glassline_render::{
     ansi::spans_to_string,
-    config::{LoadOutcome, load},
+    config::{LoadOutcome, default_settings_path, load},
+    import::{self, ImportOpts},
     install::{InstallOpts, Scope, render_report, run_install, run_uninstall},
     pipeline::{compute_requirements, render_to_string},
+    render_cache,
     stdin_reader::slurp_stdin,
     transcript, usage,
 };
@@ -49,6 +51,7 @@ fn main() -> ExitCode {
     match raw_args.first().map(String::as_str) {
         Some("install") => run_install_cmd(&raw_args[1..]),
         Some("uninstall") => run_uninstall_cmd(&raw_args[1..]),
+        Some("import") => run_import_cmd(&raw_args[1..]),
         Some("demo") => glassline_render::demo::run(&raw_args[1..]),
         _ => {
             if raw_args.iter().any(|a| a == "--help" || a == "-h") {
@@ -78,6 +81,31 @@ fn run_render(args: &[String]) -> ExitCode {
         println!("[glassline v{} (no stdin)]", env!("CARGO_PKG_VERSION"));
         return ExitCode::SUCCESS;
     }
+
+    // T8 render-cache: build the key from stdin bytes + settings.json
+    // mtime + a time-window quantum. If we've rendered identical inputs
+    // within the TTL window (default 150ms), replay the cached output and
+    // skip transcript scan / git shell-outs / usage probe / pipeline.
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let settings_path_for_key = config_override
+        .clone()
+        .or_else(|| default_settings_path().ok());
+    let cache_key = render_cache::build_key(
+        raw.as_bytes(),
+        settings_path_for_key.as_deref(),
+        now_ms,
+        render_cache::ttl_ms(),
+    );
+    if let Some(cached) = render_cache::try_read(&cache_key, now_ms) {
+        debug_log(debug_enabled, "cache-hit", &cached);
+        render_cache::record_stat(true, now_ms);
+        println!("{cached}");
+        return ExitCode::SUCCESS;
+    }
+    render_cache::record_stat(false, now_ms);
 
     let payload: StatusJson = match serde_json::from_str(&raw) {
         Ok(p) => p,
@@ -203,6 +231,11 @@ fn run_render(args: &[String]) -> ExitCode {
     // don't get trimmed. See pipeline::wrap_for_claude_code.
     let for_ui = glassline_render::pipeline::wrap_for_claude_code(&composite);
     debug_log(debug_enabled, "stdout", &for_ui);
+    // Store the wrapped-but-not-newline-terminated form in the cache; both
+    // fresh-render and cache-hit branches use println!, so an explicit
+    // newline lives in exactly one place (println!'s implicit \n) and the
+    // two branches produce byte-identical stdout.
+    render_cache::write(&cache_key, &for_ui, now_ms);
     println!("{for_ui}");
     ExitCode::SUCCESS
 }
@@ -271,6 +304,61 @@ fn run_uninstall_cmd(args: &[String]) -> ExitCode {
     }
 }
 
+fn run_import_cmd(args: &[String]) -> ExitCode {
+    let opts = match parse_import_args(args) {
+        Ok(o) => o,
+        Err(e) => {
+            let _ = writeln!(std::io::stderr(), "glassline import: {e}");
+            print_import_help();
+            return ExitCode::from(2);
+        }
+    };
+    match import::run_import(&opts) {
+        Ok(report) => {
+            if !opts.quiet {
+                print!("{}", import::render_report(&report, &opts));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            let _ = writeln!(std::io::stderr(), "glassline import: {e}");
+            ExitCode::from(e.exit_code())
+        }
+    }
+}
+
+fn parse_import_args(args: &[String]) -> Result<ImportOpts, String> {
+    let mut opts = ImportOpts::default();
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--from" => {
+                opts.from = Some(PathBuf::from(
+                    it.next().ok_or_else(|| "--from needs a path".to_string())?,
+                ));
+            }
+            "--to" => {
+                opts.to = Some(PathBuf::from(
+                    it.next().ok_or_else(|| "--to needs a path".to_string())?,
+                ));
+            }
+            "--dry-run" => opts.dry_run = true,
+            "--force" | "-f" => opts.force = true,
+            "--yes" | "-y" => opts.yes = true,
+            "--quiet" | "-q" => opts.quiet = true,
+            other => return Err(format!("unknown argument: {other}")),
+        }
+    }
+    Ok(opts)
+}
+
+fn print_import_help() {
+    let _ = writeln!(
+        std::io::stderr(),
+        "usage: glassline import [--from <path>] [--to <path>] [--dry-run] [--force] [--yes] [--quiet]"
+    );
+}
+
 fn parse_install_args(args: &[String]) -> Result<InstallOpts, String> {
     let mut opts = InstallOpts::default();
     for arg in args {
@@ -296,6 +384,7 @@ USAGE:
   <StatusJSON on stdin> | glassline [--config <path>]  Render a status line.
   glassline install [OPTS]                             Wire into Claude Code.
   glassline uninstall [OPTS]                           Remove the wiring.
+  glassline import [OPTS]                              Migrate from ccstatusline.
   glassline demo <MODE> [OPTS]                         Preview animations live.
   glassline --version                                  Print version.
   glassline --help                                     This help.
@@ -313,6 +402,14 @@ INSTALL OPTS:
                     `glassline` name (default: bare, resolved via $PATH).
   --dry-run         Preview only; do not write.
   --force           Overwrite an existing statusLine even if it isn't glassline's.
+
+IMPORT OPTS:
+  --from <path>     Explicit ccstatusline settings.json. Skips auto-detect.
+  --to <path>       Explicit glassline target. Default: platform config path.
+  --dry-run         Print report + would-be JSON; do not write.
+  --force           Overwrite an existing glassline settings.json.
+  --yes             Skip the confirmation prompt.
+  --quiet           Suppress the report; only warnings + errors on stderr.
 ",
         version = env!("CARGO_PKG_VERSION"),
     );
