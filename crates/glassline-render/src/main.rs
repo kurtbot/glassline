@@ -29,6 +29,7 @@ use glassline_core::{
 use glassline_render::{
     ansi::spans_to_string,
     config::{LoadOutcome, load},
+    import::{self, ImportOpts},
     install::{InstallOpts, Scope, render_report, run_install, run_uninstall},
     pipeline::{compute_requirements, render_to_string},
     stdin_reader::slurp_stdin,
@@ -49,6 +50,7 @@ fn main() -> ExitCode {
     match raw_args.first().map(String::as_str) {
         Some("install") => run_install_cmd(&raw_args[1..]),
         Some("uninstall") => run_uninstall_cmd(&raw_args[1..]),
+        Some("import") => run_import_cmd(&raw_args[1..]),
         Some("demo") => glassline_render::demo::run(&raw_args[1..]),
         _ => {
             if raw_args.iter().any(|a| a == "--help" || a == "-h") {
@@ -271,6 +273,61 @@ fn run_uninstall_cmd(args: &[String]) -> ExitCode {
     }
 }
 
+fn run_import_cmd(args: &[String]) -> ExitCode {
+    let opts = match parse_import_args(args) {
+        Ok(o) => o,
+        Err(e) => {
+            let _ = writeln!(std::io::stderr(), "glassline import: {e}");
+            print_import_help();
+            return ExitCode::from(2);
+        }
+    };
+    match import::run_import(&opts) {
+        Ok(report) => {
+            if !opts.quiet {
+                print!("{}", import::render_report(&report, &opts));
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            let _ = writeln!(std::io::stderr(), "glassline import: {e}");
+            ExitCode::from(e.exit_code())
+        }
+    }
+}
+
+fn parse_import_args(args: &[String]) -> Result<ImportOpts, String> {
+    let mut opts = ImportOpts::default();
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--from" => {
+                opts.from = Some(PathBuf::from(
+                    it.next().ok_or_else(|| "--from needs a path".to_string())?,
+                ));
+            }
+            "--to" => {
+                opts.to = Some(PathBuf::from(
+                    it.next().ok_or_else(|| "--to needs a path".to_string())?,
+                ));
+            }
+            "--dry-run" => opts.dry_run = true,
+            "--force" | "-f" => opts.force = true,
+            "--yes" | "-y" => opts.yes = true,
+            "--quiet" | "-q" => opts.quiet = true,
+            other => return Err(format!("unknown argument: {other}")),
+        }
+    }
+    Ok(opts)
+}
+
+fn print_import_help() {
+    let _ = writeln!(
+        std::io::stderr(),
+        "usage: glassline import [--from <path>] [--to <path>] [--dry-run] [--force] [--yes] [--quiet]"
+    );
+}
+
 fn parse_install_args(args: &[String]) -> Result<InstallOpts, String> {
     let mut opts = InstallOpts::default();
     for arg in args {
@@ -296,6 +353,7 @@ USAGE:
   <StatusJSON on stdin> | glassline [--config <path>]  Render a status line.
   glassline install [OPTS]                             Wire into Claude Code.
   glassline uninstall [OPTS]                           Remove the wiring.
+  glassline import [OPTS]                              Migrate from ccstatusline.
   glassline demo <MODE> [OPTS]                         Preview animations live.
   glassline --version                                  Print version.
   glassline --help                                     This help.
@@ -313,6 +371,14 @@ INSTALL OPTS:
                     `glassline` name (default: bare, resolved via $PATH).
   --dry-run         Preview only; do not write.
   --force           Overwrite an existing statusLine even if it isn't glassline's.
+
+IMPORT OPTS:
+  --from <path>     Explicit ccstatusline settings.json. Skips auto-detect.
+  --to <path>       Explicit glassline target. Default: platform config path.
+  --dry-run         Print report + would-be JSON; do not write.
+  --force           Overwrite an existing glassline settings.json.
+  --yes             Skip the confirmation prompt.
+  --quiet           Suppress the report; only warnings + errors on stderr.
 ",
         version = env!("CARGO_PKG_VERSION"),
     );
