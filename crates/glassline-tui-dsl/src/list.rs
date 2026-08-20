@@ -63,9 +63,16 @@ impl<T> List<T> {
     }
 
     pub fn set_filter(&mut self, filter: impl Into<String>) {
-        self.filter = filter.into();
-        // Filter changed → reset selection to the top of the new
-        // filtered subset.
+        let new_filter = filter.into();
+        if new_filter == self.filter {
+            // No-op reassignment — screens often re-push the current
+            // filter on every render. Resetting selection here would
+            // snap the cursor back to the top after every keystroke.
+            return;
+        }
+        self.filter = new_filter;
+        // Real change → the current index probably points into a
+        // stale subset. Send it back to the top of the new subset.
         self.state.select(Some(0));
     }
 
@@ -245,6 +252,23 @@ mod tests {
         assert_eq!(list.selected_item(label), Some(&"Alpha"));
         list.set_filter("BeTa");
         assert_eq!(list.selected_item(label), Some(&"BETA"));
+    }
+
+    #[test]
+    fn set_filter_no_op_preserves_selection() {
+        // Screens push the current filter on every render; a no-op
+        // reassignment must not reset the cursor.
+        let mut list = List::new(vec!["a", "b", "c"]);
+        list.move_down(label); // selection = 1
+        list.set_filter(""); // same as current → no reset
+        assert_eq!(
+            list.selected(),
+            Some(1),
+            "no-op filter must preserve selection"
+        );
+        list.set_filter("");
+        list.set_filter("");
+        assert_eq!(list.selected(), Some(1));
     }
 
     #[test]
