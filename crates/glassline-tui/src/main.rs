@@ -1,19 +1,43 @@
 //! `glassline-tui` — interactive layout config editor.
 //!
-//! P2 scaffold: the binary compiles + prints a build-marker so packaging
-//! can wire it up. Real screens land in P3.
-
-fn main() {
-    eprintln!(
-        "glassline-tui {} — under construction",
-        env!("CARGO_PKG_VERSION")
-    );
-    eprintln!(
-        "The interactive TUI editor is under development. Configure via \
-         %APPDATA%/glassline/settings.json (or ~/.config/glassline/settings.json) for now."
-    );
-}
+//! P2 milestone: launches straight into [`WidgetPicker`] so the meta
+//! catalog + drift test can be exercised end-to-end. P3 will wrap this
+//! in a proper MainMenu → LineListEditor → ItemsEditor screen tree.
 
 pub mod meta;
 pub mod preview_ctx;
 pub mod screens;
+
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
+
+use glassline_core::settings::Settings;
+use glassline_tui_dsl::{Action, DslApp, DslError};
+
+use crate::screens::WidgetPicker;
+
+fn main() -> Result<(), DslError> {
+    let chosen: Arc<Mutex<Option<&'static str>>> = Arc::new(Mutex::new(None));
+
+    let picker_chosen = Arc::clone(&chosen);
+    let picker = WidgetPicker::new(move |meta| {
+        *picker_chosen.lock().unwrap() = Some(meta.id);
+        Action::Pop
+    });
+
+    let app = DslApp::new(
+        Box::new(picker),
+        Settings::default(),
+        PathBuf::from("./glassline-scratch.json"),
+    );
+    let outcome = app.run()?;
+
+    // Print after ratatui restores the terminal.
+    match *chosen.lock().unwrap() {
+        Some(id) => println!("You picked: {id}  (outcome: {outcome:?})"),
+        None => println!("No widget picked  (outcome: {outcome:?})"),
+    }
+    Ok(())
+}
