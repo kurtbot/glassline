@@ -29,8 +29,24 @@ use crate::builtins::{
 /// A zero-arg factory. Widgets are cheap to construct — no shared state.
 pub type WidgetFactory = fn() -> Box<dyn Widget>;
 
+/// IDs that map to a canonical widget but were renamed / re-prefixed
+/// upstream. Keeping them as registry entries lets a config imported
+/// via `glassline import` (see [[ccstatusline_import_design_v1.0]]) hit
+/// the same factory without the loader having to rewrite the `type`
+/// field. See [[widget_parity_design_v1.5]] §4.23.
+pub const ALIASES: &[&str] = &[
+    "worktree-branch",
+    "worktree-mode",
+    "worktree-name",
+    "worktree-original-branch",
+    "git-review",
+    "reset-timer",
+];
+
 /// The whole built-in widget catalogue, keyed on the `type` string that
-/// appears in `settings.json`.
+/// appears in `settings.json`. Alias keys (see [`ALIASES`]) point to the
+/// same factory as their canonical entry — widget IDs returned by the
+/// widget itself remain canonical.
 pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "block-reset-timer" => block_reset_timer::factory,
     "block-timer" => block_timer::factory,
@@ -121,6 +137,15 @@ pub static WIDGETS: phf::Map<&'static str, WidgetFactory> = phf::phf_map! {
     "weekly-reset-timer" => usage::weekly_reset_timer_factory,
     "weekly-sonnet-usage" => usage::weekly_sonnet_usage_factory,
     "weekly-usage" => usage::weekly_usage_factory,
+
+    // ---- upstream aliases (canonical widget, upstream key name) ----
+    // Keep in sync with `ALIASES` above.
+    "worktree-branch" => git_worktree_branch::factory,
+    "worktree-mode" => git_worktree_mode::factory,
+    "worktree-name" => git_worktree_name::factory,
+    "worktree-original-branch" => git_worktree_original_branch::factory,
+    "git-review" => git_pr::factory,
+    "reset-timer" => block_reset_timer::factory,
 };
 
 /// Look up a built-in widget by ID.
@@ -134,10 +159,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolve_all_registered() {
+    fn resolve_all_canonical_ids() {
+        // Every canonical registry key must resolve to a widget whose own
+        // id() matches — alias keys are exempted here because they
+        // intentionally point at a factory that returns a different
+        // canonical id().
         for (id, _) in WIDGETS.entries() {
+            if ALIASES.contains(id) {
+                continue;
+            }
             let widget = resolve(id).unwrap_or_else(|| panic!("registry entry {id} unresolved"));
             assert_eq!(widget.id(), *id, "widget id doesn't match registry key");
+        }
+    }
+
+    #[test]
+    fn aliases_resolve_to_a_widget() {
+        // Alias keys must resolve, but the underlying widget's id() is
+        // the canonical form — never the alias itself.
+        for alias in ALIASES {
+            let widget =
+                resolve(alias).unwrap_or_else(|| panic!("alias {alias} unresolved"));
+            assert_ne!(
+                widget.id(),
+                *alias,
+                "alias {alias} should point at a canonical widget, not itself"
+            );
+        }
+    }
+
+    #[test]
+    fn alias_pairs_match_upstream_intent() {
+        // Compile-time-ish sanity check: each alias should route to the
+        // widget id documented in the design (see
+        // [[widget_parity_design_v1.5]] §4.23).
+        let expected: &[(&str, &str)] = &[
+            ("worktree-branch", "git-worktree-branch"),
+            ("worktree-mode", "git-worktree-mode"),
+            ("worktree-name", "git-worktree-name"),
+            ("worktree-original-branch", "git-worktree-original-branch"),
+            ("git-review", "git-pr"),
+            ("reset-timer", "block-reset-timer"),
+        ];
+        for (alias, canonical) in expected {
+            let widget = resolve(alias).unwrap();
+            assert_eq!(widget.id(), *canonical, "alias {alias} → {canonical}");
         }
     }
 

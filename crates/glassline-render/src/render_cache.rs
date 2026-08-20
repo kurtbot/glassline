@@ -137,7 +137,7 @@ pub fn build_key(
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let time_bucket = if ttl == 0 { now_ms } else { now_ms / ttl };
+    let time_bucket = now_ms.checked_div(ttl).unwrap_or(now_ms);
     CacheKey {
         stdin_hash: hash_stdin(stdin_bytes),
         settings_mtime_ns,
