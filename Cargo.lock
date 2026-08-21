@@ -673,6 +673,7 @@ dependencies = [
 name = "glassline-tui"
 version = "0.6.0"
 dependencies = [
+ "ansi-to-tui",
  "glassline-core",
  "glassline-render",
  "glassline-tui-dsl",

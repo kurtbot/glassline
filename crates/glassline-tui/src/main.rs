@@ -9,6 +9,7 @@ pub mod cli;
 pub mod meta;
 pub mod preview_ctx;
 pub mod screens;
+pub mod screenshots;
 
 use std::process::ExitCode;
 
