@@ -30,9 +30,60 @@ const HOUR_OPTIONS: &[&str] = &[
 
 const ROWS: usize = 3;
 
+/// Numeric ladder for the `interval_hours` field. `None` sits at the
+/// left edge; stepping right advances through `[1, 6, 12, 24, 48]`.
+const INTERVAL_LADDER: &[u32] = &[1, 6, 12, 24, 48];
+
 #[derive(Default)]
 pub struct UpdateCheckerMenu {
     focus: usize,
+}
+
+/// Step the focused row by `delta` (−1 = Left, +1 = Right). Wraps at
+/// the ends: stepping past the last interval loops back to `None`, and
+/// so does stepping past the last hour. Row 0 (enabled) toggles.
+fn step_focused(focus: usize, delta: i32) -> Action {
+    Action::MutateSettings(Box::new(move |s| match focus {
+        0 => s.update_checker.enabled = !s.update_checker.enabled,
+        1 => {
+            s.update_checker.interval_hours = step_interval(s.update_checker.interval_hours, delta)
+        }
+        2 => s.update_checker.daily_at_hour = step_hour(s.update_checker.daily_at_hour, delta),
+        _ => {}
+    }))
+}
+
+fn step_interval(current: Option<u32>, delta: i32) -> Option<u32> {
+    // Encoded state: `None` at index 0, then the ladder at 1..=len.
+    let cur_idx: i32 = match current {
+        None => 0,
+        Some(v) => INTERVAL_LADDER
+            .iter()
+            .position(|&h| h == v)
+            .map(|i| i as i32 + 1)
+            .unwrap_or(0),
+    };
+    let len = INTERVAL_LADDER.len() as i32 + 1; // includes the None slot
+    let next = ((cur_idx + delta).rem_euclid(len)) as usize;
+    if next == 0 {
+        None
+    } else {
+        Some(INTERVAL_LADDER[next - 1])
+    }
+}
+
+fn step_hour(current: Option<u8>, delta: i32) -> Option<u8> {
+    // 25 states: `None` + 0..=23.
+    let cur_idx: i32 = match current {
+        None => 0,
+        Some(h) => i32::from(h) + 1,
+    };
+    let next = (cur_idx + delta).rem_euclid(25);
+    if next == 0 {
+        None
+    } else {
+        Some((next - 1) as u8)
+    }
 }
 
 fn row_values(s: &Settings) -> [(String, String); ROWS] {
@@ -62,7 +113,8 @@ impl Screen for UpdateCheckerMenu {
     fn keybindings(&self) -> &[(&'static str, &'static str)] {
         &[
             ("↑/↓", "Focus"),
-            ("Enter", "Edit"),
+            ("←/→", "Step value"),
+            ("Enter", "Pick from list"),
             ("Space", "Toggle enabled"),
             ("Esc", "Back"),
         ]
@@ -124,6 +176,8 @@ impl Screen for UpdateCheckerMenu {
                 }
                 Action::None
             }
+            KeyCode::Left => step_focused(self.focus, -1),
+            KeyCode::Right => step_focused(self.focus, 1),
             KeyCode::Char(' ') => Action::MutateSettings(Box::new(|s| {
                 s.update_checker.enabled = !s.update_checker.enabled;
             })),
@@ -157,5 +211,50 @@ impl Screen for UpdateCheckerMenu {
             },
             _ => Action::None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_interval_right_advances_through_ladder_and_wraps() {
+        assert_eq!(step_interval(None, 1), Some(1));
+        assert_eq!(step_interval(Some(1), 1), Some(6));
+        assert_eq!(step_interval(Some(6), 1), Some(12));
+        assert_eq!(step_interval(Some(12), 1), Some(24));
+        assert_eq!(step_interval(Some(24), 1), Some(48));
+        assert_eq!(step_interval(Some(48), 1), None);
+        assert_eq!(step_interval(None, 1), Some(1));
+    }
+
+    #[test]
+    fn step_interval_left_wraps_backward() {
+        assert_eq!(step_interval(None, -1), Some(48));
+        assert_eq!(step_interval(Some(1), -1), None);
+        assert_eq!(step_interval(Some(6), -1), Some(1));
+    }
+
+    #[test]
+    fn step_interval_from_off_ladder_value_snaps_to_off_first() {
+        // If someone hand-edits their config to `intervalHours: 7`,
+        // stepping should bounce out via the "unknown → None" branch.
+        assert_eq!(step_interval(Some(7), 1), Some(1));
+    }
+
+    #[test]
+    fn step_hour_right_advances_with_off_before_zero() {
+        assert_eq!(step_hour(None, 1), Some(0));
+        assert_eq!(step_hour(Some(0), 1), Some(1));
+        assert_eq!(step_hour(Some(22), 1), Some(23));
+        assert_eq!(step_hour(Some(23), 1), None);
+    }
+
+    #[test]
+    fn step_hour_left_wraps() {
+        assert_eq!(step_hour(None, -1), Some(23));
+        assert_eq!(step_hour(Some(0), -1), None);
+        assert_eq!(step_hour(Some(12), -1), Some(11));
     }
 }
