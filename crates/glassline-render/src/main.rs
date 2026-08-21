@@ -6,9 +6,15 @@
 //! Argv handled by a hand-rolled parser (clap stays out of the hot path per
 //! design §4.1). Subcommands:
 //!   * `install`   / `uninstall`   — wire glassline into Claude Code
+//!   * `import`                    — one-shot migrate ccstatusline → glassline
+//!   * `demo`                      — preview an animation without piping stdin
 //!   * `--version` / `-V`          — print version + exit
 //!   * `--help`    / `-h`          — usage
 //!   * `--config <path>`           — override settings.json path
+//!
+//! TTY shim: bare `glassline` in a terminal (no stdin, no args) exec's
+//! `glassline-tui` if it's installed next to the render binary. Piped
+//! stdin (Claude Code invoking us) proceeds to render mode normally.
 //!
 //! Render mode (no subcommand): slurp stdin, load config, render pipeline,
 //! write to stdout. On the P1 slice a **first-run** load falls back to a
@@ -448,6 +454,8 @@ glassline {version} — Claude Code status line
 
 USAGE:
   <StatusJSON on stdin> | glassline [--config <path>]  Render a status line.
+  glassline                                            Bare TTY invocation opens the editor
+                                                       (`glassline-tui`) if it's installed.
   glassline install [OPTS]                             Wire into Claude Code.
   glassline uninstall [OPTS]                           Remove the wiring.
   glassline import [OPTS]                              Migrate from ccstatusline.
