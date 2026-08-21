@@ -7,7 +7,9 @@ pub mod items_editor;
 pub mod line_list_editor;
 pub mod main_menu;
 pub mod placeholder;
+pub mod terminal_options;
 pub mod text_edit_modal;
+pub mod update_checker_menu;
 pub mod widget_editor;
 pub mod widget_picker;
 
@@ -18,6 +20,8 @@ pub use items_editor::ItemsEditor;
 pub use line_list_editor::LineListEditor;
 pub use main_menu::MainMenu;
 pub use placeholder::Placeholder;
+pub use terminal_options::TerminalOptionsMenu;
 pub use text_edit_modal::TextEditModal;
+pub use update_checker_menu::UpdateCheckerMenu;
 pub use widget_editor::WidgetEditor;
 pub use widget_picker::WidgetPicker;

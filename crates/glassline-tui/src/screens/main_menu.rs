@@ -222,14 +222,10 @@ fn dispatch(action: MenuAction) -> Action {
             "Global Defaults",
             "Global default overrides land in P4.",
         ))),
-        MenuAction::TerminalOptions => Action::Push(Box::new(Placeholder::new(
-            "Terminal Options",
-            "Flex mode + compact threshold + width overrides land in P4.",
-        ))),
-        MenuAction::UpdateChecker => Action::Push(Box::new(Placeholder::new(
-            "Update Checker",
-            "Update-notification cadence lands in P4.",
-        ))),
+        MenuAction::TerminalOptions => {
+            Action::Push(Box::new(crate::screens::TerminalOptionsMenu::default()))
+        }
+        MenuAction::UpdateChecker => Action::Push(Box::new(crate::screens::UpdateCheckerMenu)),
         MenuAction::ImportExport => Action::Push(Box::new(Placeholder::new(
             "Import / Export",
             "ccstatusline import + settings export land in P4.",
