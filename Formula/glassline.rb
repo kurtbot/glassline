@@ -1,27 +1,27 @@
 class Glassline < Formula
   desc "Rust port of ccstatusline — status line formatter for Claude Code CLI"
   homepage "https://github.com/kurtbot/glassline"
-  version "0.6.0"
+  version "0.6.2"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/kurtbot/glassline/releases/download/v0.6.0/glassline-aarch64-apple-darwin.tar.gz"
-      sha256 "35bce08a3a5b22a9a0fafc42a144dd604cf43b88a8b956ca970630ce5f1648da"
+      url "https://github.com/kurtbot/glassline/releases/download/v0.6.2/glassline-aarch64-apple-darwin.tar.gz"
+      sha256 "3d02d97be2652c140ff7ee78c02e1668132ea733a253669419c4a4f10d7547c2"
     end
     on_intel do
-      url "https://github.com/kurtbot/glassline/releases/download/v0.6.0/glassline-x86_64-apple-darwin.tar.gz"
+      url "https://github.com/kurtbot/glassline/releases/download/v0.6.2/glassline-x86_64-apple-darwin.tar.gz"
       sha256 "PLACEHOLDER_MAC_X64"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/kurtbot/glassline/releases/download/v0.6.0/glassline-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "69b06458ed6e719c3b73a3b621921e703ecb0da67c237b579e7b9655e444420b"
+      url "https://github.com/kurtbot/glassline/releases/download/v0.6.2/glassline-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "bb2301a2571a8e2dd8673402150e6933c48e47fef8914a499f4d43d75d02d02d"
     end
     on_intel do
-      url "https://github.com/kurtbot/glassline/releases/download/v0.6.0/glassline-x86_64-unknown-linux-gnu.tar.gz"
+      url "https://github.com/kurtbot/glassline/releases/download/v0.6.2/glassline-x86_64-unknown-linux-gnu.tar.gz"
       sha256 "PLACEHOLDER_LINUX_X64"
     end
   end
