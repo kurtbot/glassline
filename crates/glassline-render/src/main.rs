@@ -496,18 +496,20 @@ fn print_install_help() {
     );
 }
 
-/// A single-widget "hello, glassline" placeholder for the very first launch
-/// (no settings.json on disk yet). Once T-1.7 lands real MVP widgets this
-/// branch dies; users will see the TS-parity default line instead.
+/// One-line placeholder shown the very first time Claude Code invokes
+/// glassline before any config exists. Tells the user how to configure —
+/// which is to run `glassline` in a terminal (TTY shim → glassline-tui
+/// wizard), NOT `glassline install` (that only wires the statusLine
+/// hook; it doesn't create a config file).
 fn first_run_slice_settings() -> Settings {
     let mut spec = WidgetSpec::new("1", "custom-text");
     spec.custom_text = Some(format!(
-        "[glassline v{}] {{session_id}} — no config, run `glassline install`",
+        "[glassline v{}] no config yet — run `glassline` in a terminal to configure",
         env!("CARGO_PKG_VERSION")
     ));
     spec.color = Some("cyan".into());
     Settings {
-        lines: vec![vec![spec], vec![], vec![]],
+        lines: vec![vec![spec]],
         ..Settings::in_memory_defaults()
     }
 }

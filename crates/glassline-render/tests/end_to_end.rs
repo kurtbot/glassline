@@ -9,7 +9,16 @@ use assert_cmd::Command;
 use glassline_testkit::normalise;
 
 #[test]
-fn vertical_slice_renders_session_id_from_stdin() {
+fn vertical_slice_first_run_hint_points_to_glassline_terminal() {
+    // No config on disk → first-run hint is shown. The hint tells the
+    // user to run `glassline` in a terminal (which routes through the
+    // TTY shim to the wizard). NOT `glassline install` — that command
+    // only wires the statusLine hook; it doesn't create a config.
+    //
+    // We assert on the raw stdout rather than `normalise().visible()`
+    // because the normaliser converts spaces to non-breaking-spaces
+    // for visible-attribute comparison, which trips up substring
+    // matches against literal ASCII strings.
     let payload = r#"{"session_id":"abc-123"}"#;
     let assert = Command::cargo_bin("glassline")
         .expect("built glassline binary")
@@ -19,15 +28,21 @@ fn vertical_slice_renders_session_id_from_stdin() {
         .success();
 
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
-    let normalised = normalise(&stdout);
-    let visible = normalised.visible();
+    // Custom-text widget converts spaces to U+00A0 (non-breaking) at
+    // render time so terminals don't break mid-widget. Reverse that
+    // for our assertions.
+    let normalised = stdout.replace('\u{a0}', " ");
     assert!(
-        visible.contains("abc-123"),
-        "expected session id in {visible:?}"
+        normalised.contains("no config yet"),
+        "expected 'no config yet' hint in {normalised:?}"
     );
     assert!(
-        visible.contains("glassline"),
-        "expected version marker in {visible:?}",
+        normalised.contains("run `glassline` in a terminal"),
+        "expected 'run `glassline` in a terminal' guidance in {normalised:?}",
+    );
+    assert!(
+        !normalised.contains("`glassline install`"),
+        "hint must not point at `glassline install` (that only wires the hook, doesn't create config): {normalised:?}",
     );
 }
 
