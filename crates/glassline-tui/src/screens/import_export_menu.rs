@@ -7,7 +7,6 @@ use std::path::PathBuf;
 
 use ratatui::{
     crossterm::event::{Event, KeyCode},
-    layout::{Constraint, Layout},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::Paragraph,
@@ -22,9 +21,6 @@ use crate::screens::text_edit_modal::TextEditModal;
 #[derive(Default)]
 pub struct ImportExportMenu {
     focus: usize,
-    /// The result banner from the last import/export attempt; kept
-    /// visible until the user leaves the screen or fires another op.
-    last_report: Option<String>,
 }
 
 const ROWS: &[(&str, &str)] = &[
@@ -51,9 +47,7 @@ impl Screen for ImportExportMenu {
     }
     fn render(&mut self, ui: &mut Ui) {
         let area = ui.area();
-        let [body, banner] =
-            Layout::vertical([Constraint::Fill(1), Constraint::Length(4)]).areas(area);
-        Panel::new("Import / Export").render(body, ui.frame, |inner, frame| {
+        Panel::new("Import / Export").render(area, ui.frame, |inner, frame| {
             let lines: Vec<Line> = ROWS
                 .iter()
                 .enumerate()
@@ -74,18 +68,13 @@ impl Screen for ImportExportMenu {
                     ])
                 })
                 .collect();
-            frame.render_widget(Paragraph::new(lines), inner);
-        });
-
-        let banner_text = self
-            .last_report
-            .as_deref()
-            .unwrap_or("No import/export run this session yet.");
-        Panel::new("Last run").render(banner, ui.frame, |inner, frame| {
-            frame.render_widget(
-                Paragraph::new(banner_text).style(Style::default().add_modifier(Modifier::DIM)),
-                inner,
-            );
+            let mut all: Vec<Line> = lines;
+            all.push(Line::from(""));
+            all.push(Line::from(vec![Span::styled(
+                "Outcome shows as a toast in the bottom-right corner.",
+                Style::default().add_modifier(Modifier::DIM),
+            )]));
+            frame.render_widget(Paragraph::new(all), inner);
         });
     }
     fn on_event(&mut self, ev: Event) -> Action {
@@ -126,11 +115,7 @@ impl ImportExportMenu {
             ..ImportOpts::default()
         };
         match run_import(&opts) {
-            Err(e) => {
-                let msg = format!("Import failed: {e}");
-                self.last_report = Some(msg.clone());
-                Action::Toast(msg)
-            }
+            Err(e) => Action::Toast(format!("Import failed: {e}")),
             Ok(report) => {
                 let target_json = report.target_json.clone();
                 let summary = format!(
@@ -142,7 +127,6 @@ impl ImportExportMenu {
                     report.widgets_builtin,
                     report.widgets_external,
                 );
-                self.last_report = Some(summary.clone());
                 match serde_json::from_str::<Settings>(&target_json) {
                     Ok(new_settings) => Action::Sequence(vec![
                         Action::MutateSettings(Box::new(move |s| *s = new_settings)),
