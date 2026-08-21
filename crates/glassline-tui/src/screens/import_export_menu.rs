@@ -33,6 +33,10 @@ const ROWS: &[(&str, &str)] = &[
         "Load your ccstatusline settings into scratch. Press `s` on Main Menu to persist.",
     ),
     (
+        "Import from file (choose path)",
+        "Load any glassline / ccstatusline settings.json into scratch (migrates on the fly).",
+    ),
+    (
         "Export current settings to file",
         "Write the current scratch to a chosen JSON path.",
     ),
@@ -104,7 +108,8 @@ impl Screen for ImportExportMenu {
             }
             KeyCode::Enter => match self.focus {
                 0 => self.import_from_ccstatusline(),
-                1 => self.push_export_prompt(),
+                1 => self.push_import_from_file_prompt(),
+                2 => self.push_export_prompt(),
                 _ => Action::None,
             },
             _ => Action::None,
@@ -147,6 +152,54 @@ impl ImportExportMenu {
                 }
             }
         }
+    }
+
+    fn push_import_from_file_prompt(&self) -> Action {
+        Action::Push(Box::new(TextEditModal::new(
+            "import path",
+            "path to a settings.json (glassline or ccstatusline)",
+            None,
+            500,
+            |v| {
+                let Some(path_str) = v else {
+                    return Action::Toast("Import cancelled".into());
+                };
+                let path = PathBuf::from(path_str.trim());
+                if path.as_os_str().is_empty() {
+                    return Action::Toast("Empty path — import cancelled".into());
+                }
+                if !path.exists() {
+                    return Action::Toast(format!("Not found: {}", path.display()));
+                }
+                let opts = ImportOpts {
+                    from: Some(path.clone()),
+                    dry_run: true,
+                    ..ImportOpts::default()
+                };
+                match run_import(&opts) {
+                    Err(e) => Action::Toast(format!("Import failed: {e}")),
+                    Ok(report) => {
+                        let target_json = report.target_json.clone();
+                        let summary = format!(
+                            "Imported from {} (v{} → v{}) — {} lines, {} built-ins, {} ext",
+                            report.source.display(),
+                            report.source_version,
+                            report.target_version,
+                            report.lines,
+                            report.widgets_builtin,
+                            report.widgets_external,
+                        );
+                        match serde_json::from_str::<Settings>(&target_json) {
+                            Ok(new_settings) => Action::Sequence(vec![
+                                Action::MutateSettings(Box::new(move |s| *s = new_settings)),
+                                Action::Toast(summary),
+                            ]),
+                            Err(e) => Action::Toast(format!("Parse migrated JSON failed: {e}")),
+                        }
+                    }
+                }
+            },
+        )))
     }
 
     fn push_export_prompt(&self) -> Action {
