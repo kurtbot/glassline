@@ -68,10 +68,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/upload-rust-binary-action@v1
         with:
-          bin: glassline
+          # Whitespace-separated multi-bin: both the render binary and
+          # the interactive editor ship in one archive so the TTY shim
+          # (bare `glassline` in a terminal → exec sibling `glassline-tui`)
+          # can find its neighbour on any install path.
+          bin: glassline glassline-tui
           target: ${{ matrix.target }}
           include: LICENSE,LICENSE-UPSTREAM,README.md
-          archive: $bin-$target
+          archive: glassline-$target
           token: ${{ secrets.GITHUB_TOKEN }}
 
   finalize:

@@ -144,21 +144,36 @@ echo "extracting..."
 mkdir -p "$tmp/extract"
 tar -xzf "$tmp/$archive" -C "$tmp/extract"
 
-if [ ! -f "$tmp/extract/glassline" ]; then
-  # taiki-e action packs into a subdir named after the archive; fall back.
-  found="$(find "$tmp/extract" -name glassline -type f | head -1)"
-  if [ -z "$found" ]; then
-    echo "glassline binary not found in archive" >&2
-    exit 1
-  fi
-  cp "$found" "$tmp/extract/glassline"
-fi
-
 mkdir -p "$INSTALL_DIR"
-install -m 0755 "$tmp/extract/glassline" "$INSTALL_DIR/glassline"
 
-echo ""
-echo "installed: $INSTALL_DIR/glassline"
+# Install both the render binary and the editor. The editor became part
+# of the archive in v0.6.2; older archives ship only `glassline`, so a
+# missing sibling is a warning, not a fatal error.
+installed_any=0
+for name in glassline glassline-tui; do
+  path="$tmp/extract/$name"
+  if [ ! -f "$path" ]; then
+    found="$(find "$tmp/extract" -name "$name" -type f | head -1)"
+    if [ -z "$found" ]; then
+      if [ "$name" = "glassline" ]; then
+        echo "glassline binary not found in archive" >&2
+        exit 1
+      else
+        echo "note: $name not in this archive (pre-v0.6.2). Interactive editor won't launch." >&2
+        continue
+      fi
+    fi
+    path="$found"
+  fi
+  install -m 0755 "$path" "$INSTALL_DIR/$name"
+  echo "installed: $INSTALL_DIR/$name"
+  installed_any=1
+done
+
+if [ "$installed_any" = "0" ]; then
+  echo "no binaries installed" >&2
+  exit 1
+fi
 
 case ":$PATH:" in
   *":$INSTALL_DIR:"*)
