@@ -55,6 +55,11 @@ time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
 ratatui = "0.30"
 tui-input = "0.15"
 ansi-to-tui = "8"
+# Cross-platform `which` for detecting installed coding CLIs. Used by
+# glassline-tui's cli_detect module (issue #18). Preferred over hand-
+# rolled PATH scanning because it handles Windows PATHEXT resolution
+# and PATH edge cases (leading colons meaning cwd, quoted entries).
+which = "6"
 
 # Test-only
 insta = { version = "1", features = ["yaml", "json", "redactions"] }
