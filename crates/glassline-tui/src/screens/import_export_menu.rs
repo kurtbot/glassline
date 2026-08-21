@@ -16,6 +16,7 @@ use glassline_core::settings::Settings;
 use glassline_render::import::{ImportOpts, run_import};
 use glassline_tui_dsl::{Action, Panel, Screen, Ui};
 
+use crate::screens::info_modal::InfoModal;
 use crate::screens::text_edit_modal::TextEditModal;
 
 #[derive(Default)]
@@ -202,13 +203,22 @@ impl ImportExportMenu {
                 }
                 let path = resolve_export_path(raw);
                 // Read-only access to scratch — export just serializes
-                // it and writes; no mutation. Toast reports outcome so
-                // stderr doesn't leak into the alt-screen.
+                // it and writes; no mutation. The outcome is shown as
+                // a blocking InfoModal so the user has to acknowledge
+                // it (toasts vanish too quickly for something this
+                // important).
                 Action::WithSettings(Box::new(move |settings| {
-                    match export_settings(&path, settings) {
-                        Ok(()) => Action::Toast(format!("Exported to {}", path.display())),
-                        Err(err) => Action::Toast(format!("Export failed: {err}")),
-                    }
+                    let (title, body) = match export_settings(&path, settings) {
+                        Ok(()) => (
+                            "Export succeeded",
+                            format!("Wrote settings to:\n\n{}", path.display()),
+                        ),
+                        Err(err) => (
+                            "Export failed",
+                            format!("Target: {}\n\nError: {err}", path.display()),
+                        ),
+                    };
+                    Action::Push(Box::new(InfoModal::new(title, body)))
                 }))
             },
         )))
