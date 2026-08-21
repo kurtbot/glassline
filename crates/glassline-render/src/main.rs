@@ -16,7 +16,11 @@
 //! customise anything. Once real MVP widgets ship (T-1.7+), the first-run
 //! defaults will produce a useful line on their own.
 
-use std::{io::Write, path::PathBuf, process::ExitCode};
+use std::{
+    io::{IsTerminal, Write},
+    path::PathBuf,
+    process::{Command, ExitCode},
+};
 
 use glassline_core::{
     color::Color,
@@ -58,7 +62,53 @@ fn main() -> ExitCode {
                 print_help();
                 return ExitCode::SUCCESS;
             }
+            // TTY shim: bare `glassline` in a terminal with no piped
+            // stdin means the user typed the command by hand — send
+            // them to the editor. Piped input (Claude Code invoking us)
+            // proceeds to render_mode normally.
+            if raw_args.is_empty() && std::io::stdin().is_terminal() {
+                return exec_tui();
+            }
             run_render(&raw_args)
+        }
+    }
+}
+
+/// Spawn the sibling `glassline-tui` binary and forward its exit code.
+/// Skipping the shim (falling through to render mode) is the fallback
+/// when the editor isn't installed — the user sees the usual "no
+/// stdin" message and can install it separately.
+fn exec_tui() -> ExitCode {
+    let Ok(exe) = std::env::current_exe() else {
+        return run_render(&[]);
+    };
+    let Some(dir) = exe.parent() else {
+        return run_render(&[]);
+    };
+    let editor = dir.join(if cfg!(windows) {
+        "glassline-tui.exe"
+    } else {
+        "glassline-tui"
+    });
+    if !editor.exists() {
+        // Editor not installed — fall through so the user still sees
+        // a helpful message rather than a "not found" spawn error.
+        eprintln!(
+            "glassline: editor binary not found at {}\nInstall it with `cargo install --path crates/glassline-tui` or download from the release page.",
+            editor.display()
+        );
+        return run_render(&[]);
+    }
+    let status = Command::new(&editor).status();
+    match status {
+        Ok(s) => s
+            .code()
+            .and_then(|c| u8::try_from(c).ok())
+            .map(ExitCode::from)
+            .unwrap_or(ExitCode::SUCCESS),
+        Err(e) => {
+            eprintln!("glassline: failed to spawn {}: {e}", editor.display());
+            ExitCode::FAILURE
         }
     }
 }
