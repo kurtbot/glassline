@@ -18,6 +18,7 @@ set -eu
 REPO="kurtbot/glassline"
 VERSION="latest"
 INSTALL_DIR="${GLASSLINE_INSTALL_DIR:-$HOME/.local/bin}"
+UPDATE_PATH="1"
 
 # ---------- argv ----------
 
@@ -31,16 +32,21 @@ while [ $# -gt 0 ]; do
       INSTALL_DIR="$2"
       shift 2
       ;;
+    --no-path)
+      UPDATE_PATH="0"
+      shift 1
+      ;;
     -h|--help)
       cat <<'EOF'
 glassline installer
 
 Usage:
-  install.sh [--version vX.Y.Z] [--dir /path]
+  install.sh [--version vX.Y.Z] [--dir /path] [--no-path]
 
 Options:
   --version   Tag to install (default: latest).
   --dir       Install directory (default: $HOME/.local/bin).
+  --no-path   Skip PATH modification; print instructions instead.
 EOF
       exit 0
       ;;
@@ -50,6 +56,52 @@ EOF
       ;;
   esac
 done
+
+# ---------- shell rc updater ----------
+
+# Append `export PATH="$PATH:<dir>"` (or fish equivalent) to the user's
+# shell rc file, bracketed by marker comments so re-running the
+# installer is idempotent and users can remove the block by hand.
+#
+# Detection: prefer $SHELL basename; fall back to ~/.profile for
+# unknown shells so PATH still gets updated for POSIX-shell logins.
+update_shell_rc() {
+  target_dir="$1"
+  shell_bin="${SHELL##*/}"
+  rc=""
+  block_type="posix"
+  case "$shell_bin" in
+    bash) rc="$HOME/.bashrc" ;;
+    zsh)  rc="$HOME/.zshrc" ;;
+    fish)
+      rc="$HOME/.config/fish/config.fish"
+      block_type="fish"
+      mkdir -p "$(dirname "$rc")"
+      ;;
+    *) rc="$HOME/.profile" ;;
+  esac
+
+  if [ -f "$rc" ] && grep -q '# >>> glassline install >>>' "$rc" 2>/dev/null; then
+    echo "$rc already has a glassline PATH block — skipping."
+    echo "  restart your shell (or 'source $rc') to pick it up."
+    return 0
+  fi
+
+  {
+    printf '\n# >>> glassline install >>>\n'
+    if [ "$block_type" = "fish" ]; then
+      printf 'if not contains %s $PATH\n    set -gx PATH $PATH %s\nend\n' "$target_dir" "$target_dir"
+    else
+      printf 'case ":$PATH:" in\n  *":%s:"*) ;;\n  *) export PATH="$PATH:%s" ;;\nesac\n' "$target_dir" "$target_dir"
+    fi
+    printf '# <<< glassline install <<<\n'
+  } >> "$rc"
+
+  echo ""
+  echo "added $target_dir to PATH via $rc"
+  echo "  restart your shell (or 'source $rc') to pick it up in this session."
+  echo "  pass --no-path to future installer runs to skip this."
+}
 
 # ---------- os/arch detection ----------
 
@@ -180,10 +232,14 @@ case ":$PATH:" in
     echo "PATH already contains $INSTALL_DIR — you're set."
     ;;
   *)
-    echo ""
-    echo "NOTE: $INSTALL_DIR is not on your PATH."
-    echo "  Add this line to your shell rc (.bashrc / .zshrc / .config/fish/config.fish):"
-    echo "    export PATH=\"\$PATH:$INSTALL_DIR\""
+    if [ "$UPDATE_PATH" = "1" ]; then
+      update_shell_rc "$INSTALL_DIR"
+    else
+      echo ""
+      echo "NOTE: $INSTALL_DIR is not on your PATH (--no-path given)."
+      echo "  Add this line to your shell rc (.bashrc / .zshrc / .config/fish/config.fish):"
+      echo "    export PATH=\"\$PATH:$INSTALL_DIR\""
+    fi
     ;;
 esac
 

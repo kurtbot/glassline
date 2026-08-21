@@ -42,7 +42,9 @@ curl -fsSL https://raw.githubusercontent.com/kurtbot/glassline/main/packaging/in
 
 Downloads the archive matching your OS+arch from the latest release, verifies its SHA256, extracts to `~/.local/bin/glassline`.
 
-Pin a version: `sh -s -- --version v0.5.1`. Override dir: `sh -s -- --dir /usr/local/bin`.
+Pin a version: `sh -s -- --version v0.6.2`. Override dir: `sh -s -- --dir /usr/local/bin`. Skip PATH modification: `sh -s -- --no-path`.
+
+By default the installer appends `$INSTALL_DIR` to your shell rc (`.bashrc` / `.zshrc` / `~/.config/fish/config.fish`) via a marked, idempotent block so `glassline` is on `PATH` after a shell restart. `--no-path` prints the export line instead of writing it.
 
 ### Windows (PowerShell)
 
@@ -50,7 +52,7 @@ Pin a version: `sh -s -- --version v0.5.1`. Override dir: `sh -s -- --dir /usr/l
 iwr https://raw.githubusercontent.com/kurtbot/glassline/main/packaging/install.ps1 -UseBasicParsing | iex
 ```
 
-Installs to `%LOCALAPPDATA%\glassline\glassline.exe`. Same SHA256 verification.
+Installs to `%LOCALAPPDATA%\glassline\`. Same SHA256 verification. By default the installer also appends the install dir to your **User** `Path` env var via `[Environment]::SetEnvironmentVariable(...)` — idempotent, no admin required, takes effect after opening a new terminal. Pass `-NoPath` to opt out.
 
 ### Homebrew (macOS + Linuxbrew)
 
