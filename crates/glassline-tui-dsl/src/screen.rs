@@ -56,6 +56,11 @@ pub enum Action {
     /// Apply a list of actions in order. `Quit` in the middle
     /// terminates the sequence.
     Sequence(Vec<Action>),
+    /// Atomically persist the current scratch [`Settings`] to
+    /// [`crate::app::DslApp::committed_path`]. On success clears the
+    /// dirty flag and fires an OK toast; on failure fires a toast
+    /// with the error text.
+    Save,
 }
 
 impl std::fmt::Debug for Action {
@@ -71,6 +76,7 @@ impl std::fmt::Debug for Action {
             Self::Toast(t) => write!(f, "Action::Toast({t:?})"),
             Self::MutateSettings(_) => f.write_str("Action::MutateSettings(<closure>)"),
             Self::Sequence(v) => write!(f, "Action::Sequence({v:?})"),
+            Self::Save => f.write_str("Action::Save"),
         }
     }
 }

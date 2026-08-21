@@ -197,7 +197,7 @@ impl Screen for MainMenu {
                 Action::None
             }
             KeyCode::Char('q') => Action::Quit { save: false },
-            KeyCode::Char('s') => Action::Toast("Save is wired in P5.".into()),
+            KeyCode::Char('s') => Action::Save,
             KeyCode::Enter => {
                 let Some(entry) = self.list.selected_item(entry_label).copied() else {
                     return Action::None;
@@ -212,7 +212,7 @@ impl Screen for MainMenu {
 fn dispatch(action: MenuAction) -> Action {
     match action {
         MenuAction::EditLines => Action::Push(Box::new(LineListEditor::default())),
-        MenuAction::Save => Action::Toast("Save is wired in P5.".into()),
+        MenuAction::Save => Action::Save,
         MenuAction::Quit => Action::Quit { save: false },
         MenuAction::Powerline => Action::Push(Box::new(Placeholder::new(
             "Powerline",
@@ -288,9 +288,9 @@ mod tests {
     }
 
     #[test]
-    fn save_returns_toast_placeholder() {
+    fn save_shortcut_returns_save_action() {
         let mut menu = MainMenu::new();
-        assert!(matches!(menu.on_event(key('s')), Action::Toast(_)));
+        assert!(matches!(menu.on_event(key('s')), Action::Save));
     }
 
     #[test]

@@ -250,6 +250,17 @@ impl DslApp {
                 }
                 None
             }
+            Action::Save => {
+                let toast = match atomic_save(&self.scratch, &self.committed_path) {
+                    Ok(()) => {
+                        self.dirty = false;
+                        Toast::new(format!("Saved to {}", self.committed_path.display()))
+                    }
+                    Err(e) => Toast::new(format!("Save failed: {e}")),
+                };
+                self.pending_toast = Some(toast);
+                None
+            }
         }
     }
 
@@ -264,6 +275,25 @@ impl DslApp {
     pub fn take_toast(&mut self) -> Option<String> {
         self.pending_toast.take().map(|t| t.text().to_string())
     }
+}
+
+/// Serialise `settings` to JSON, write to `path.tmp`, then rename
+/// into place. Cross-platform-atomic (`MoveFileEx` on Windows, `rename`
+/// on POSIX). Creates the parent directory if it doesn't exist yet.
+///
+/// # Errors
+/// Any I/O or JSON serialisation failure is stringified for the toast.
+fn atomic_save(settings: &Settings, path: &std::path::Path) -> Result<(), String> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let bytes = serde_json::to_vec_pretty(settings).map_err(|e| format!("serialize: {e}"))?;
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("write tmp: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("rename: {e}"))?;
+    Ok(())
 }
 
 /// Format a screen's keybindings into a single footer line —

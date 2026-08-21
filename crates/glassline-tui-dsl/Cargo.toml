@@ -17,6 +17,7 @@ glassline-core = { path = "../glassline-core" }
 glassline-render = { path = "../glassline-render" }
 ansi-to-tui = { workspace = true }
 ratatui = { workspace = true }
+serde_json = { workspace = true }
 tui-input = { workspace = true }
 thiserror = { workspace = true }
 
