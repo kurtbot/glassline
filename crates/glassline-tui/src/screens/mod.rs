@@ -3,6 +3,7 @@
 pub mod choice_modal;
 pub mod color_menu;
 pub mod confirm_modal;
+pub mod import_export_menu;
 pub mod items_editor;
 pub mod line_list_editor;
 pub mod main_menu;
@@ -17,6 +18,7 @@ pub mod widget_picker;
 pub use choice_modal::ChoiceModal;
 pub use color_menu::ColorMenu;
 pub use confirm_modal::ConfirmModal;
+pub use import_export_menu::ImportExportMenu;
 pub use items_editor::ItemsEditor;
 pub use line_list_editor::LineListEditor;
 pub use main_menu::MainMenu;

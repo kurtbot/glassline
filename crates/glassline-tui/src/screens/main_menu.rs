@@ -223,10 +223,9 @@ fn dispatch(action: MenuAction) -> Action {
             Action::Push(Box::new(crate::screens::TerminalOptionsMenu::default()))
         }
         MenuAction::UpdateChecker => Action::Push(Box::new(crate::screens::UpdateCheckerMenu)),
-        MenuAction::ImportExport => Action::Push(Box::new(Placeholder::new(
-            "Import / Export",
-            "ccstatusline import + settings export land in P4.",
-        ))),
+        MenuAction::ImportExport => {
+            Action::Push(Box::new(crate::screens::ImportExportMenu::default()))
+        }
         MenuAction::InstallUninstall => Action::Push(Box::new(Placeholder::new(
             "Install / Uninstall",
             "Claude Code wiring lands in P5.",
