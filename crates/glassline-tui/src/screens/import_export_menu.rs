@@ -189,7 +189,7 @@ impl ImportExportMenu {
     fn push_export_prompt(&self) -> Action {
         Action::Push(Box::new(TextEditModal::new(
             "export path",
-            "file OR folder — folders get glassline-settings.json auto-appended",
+            "file OR folder — folders get my-glassline-export.json auto-appended",
             None,
             500,
             |v| {
@@ -215,7 +215,7 @@ impl ImportExportMenu {
     }
 }
 
-const DEFAULT_EXPORT_FILENAME: &str = "glassline-settings.json";
+const DEFAULT_EXPORT_FILENAME: &str = "my-glassline-export.json";
 
 /// If the user gave us a directory (existing or trailing-slash),
 /// append the default filename so the write lands *inside* it rather
