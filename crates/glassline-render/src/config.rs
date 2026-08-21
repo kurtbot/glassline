@@ -23,7 +23,7 @@ use std::{
 };
 
 use glassline_core::{
-    migration::{detect_version, migrate_value},
+    migration::{MigrationWarning, detect_version, migrate_value},
     settings::Settings,
 };
 use thiserror::Error;
@@ -35,6 +35,10 @@ pub struct LoadedConfig {
     pub settings: Settings,
     pub outcome: LoadOutcome,
     pub path: PathBuf,
+    /// Non-fatal notes collected during migration. The hot path discards
+    /// these (or logs at DEBUG); `glassline import` surfaces them in its
+    /// report; the future TUI wizard renders them in the diff modal.
+    pub warnings: Vec<MigrationWarning>,
 }
 
 /// What happened when we tried to read `settings.json`.
@@ -68,6 +72,7 @@ pub fn load(explicit_path: Option<&Path>) -> Result<LoadedConfig, ConfigError> {
             settings: Settings::in_memory_defaults(),
             outcome: LoadOutcome::FirstRun,
             path,
+            warnings: Vec::new(),
         });
     }
 
@@ -80,6 +85,7 @@ pub fn load(explicit_path: Option<&Path>) -> Result<LoadedConfig, ConfigError> {
                     reason: format!("read failed: {e}"),
                 },
                 path,
+                warnings: Vec::new(),
             });
         }
     };
@@ -88,6 +94,7 @@ pub fn load(explicit_path: Option<&Path>) -> Result<LoadedConfig, ConfigError> {
             settings: Settings::in_memory_defaults(),
             outcome: LoadOutcome::FirstRun,
             path,
+            warnings: Vec::new(),
         });
     }
 
@@ -100,12 +107,13 @@ pub fn load(explicit_path: Option<&Path>) -> Result<LoadedConfig, ConfigError> {
                     reason: format!("json syntax: {e}"),
                 },
                 path,
+                warnings: Vec::new(),
             });
         }
     };
 
     let source_version = detect_version(&parsed_value);
-    let migrated = match migrate_value(parsed_value, source_version) {
+    let (migrated, warnings) = match migrate_value(parsed_value, source_version) {
         Ok(v) => v,
         Err(e) => {
             return Ok(LoadedConfig {
@@ -114,6 +122,7 @@ pub fn load(explicit_path: Option<&Path>) -> Result<LoadedConfig, ConfigError> {
                     reason: format!("migration: {e}"),
                 },
                 path,
+                warnings: Vec::new(),
             });
         }
     };
@@ -126,6 +135,7 @@ pub fn load(explicit_path: Option<&Path>) -> Result<LoadedConfig, ConfigError> {
                     reason: format!("shape after migration: {e}"),
                 },
                 path,
+                warnings: Vec::new(),
             });
         }
     };
@@ -134,6 +144,7 @@ pub fn load(explicit_path: Option<&Path>) -> Result<LoadedConfig, ConfigError> {
         settings,
         outcome: LoadOutcome::Loaded,
         path,
+        warnings,
     })
 }
 

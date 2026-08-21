@@ -12,12 +12,12 @@
 /// let _guard = crate::common::TEST_ENV_LOCK.lock().unwrap();
 /// ```
 ///
-/// See [[widget_parity_design_v1.1]] §4.11 F3 for the design context.
 #[cfg(test)]
 pub static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 use glassline_core::{
     color::Color,
+    render_context::RenderContext,
     settings::{DimSetting, WidgetSpec},
     span::StyledSpan,
     status_json::{ContextWindow, CurrentUsage, StatusJson},
@@ -46,6 +46,49 @@ pub fn format_tokens(count: u64, decimals: u32) -> String {
         return format!("{value:.dec$}k", dec = decimals as usize, value = value,);
     }
     count.to_string()
+}
+
+/// Context-window occupancy as a percent (0.0..=100.0), or `None` when
+/// no signal is available.
+///
+/// Prefers `StatusJson.context_window.used_percentage` when live status
+/// carries it; otherwise falls back to
+/// `context_length_tokens / window_size * 100`. Used by widgets whose
+/// visible text is a token count (not a percent) to attach a
+/// [`percent_hint_span`] so `animate.rs`'s `thresholds` and `pulseAbove`
+/// effects can still fire.
+#[must_use]
+pub fn context_window_percent(ctx: &RenderContext) -> Option<f64> {
+    let metrics = context_window_metrics(ctx.data.as_ref());
+    if let Some(pct) = metrics.used_percentage {
+        return Some(pct.clamp(0.0, 100.0));
+    }
+    let tokens = metrics
+        .context_length_tokens
+        .or_else(|| ctx.token_metrics.as_ref().map(|m| m.context_length))?;
+    let window = metrics
+        .window_size
+        .unwrap_or_else(default_context_window_size);
+    if window == 0 {
+        return None;
+    }
+    Some((tokens as f64 / window as f64 * 100.0).min(100.0))
+}
+
+/// Zero-width sentinel span carrying an animation percent hint.
+///
+/// Widgets whose displayed text is not a percent (`context-length`,
+/// `tokens-*`, `cache-*`) append this at the tail of their span vec so
+/// `animate.rs::extract_percent` finds the value before falling through
+/// to the text-scan path. The ANSI writer skips empty-text spans, so
+/// the hint never contributes to visible output.
+#[must_use]
+pub fn percent_hint_span(pct: f64) -> StyledSpan {
+    StyledSpan {
+        text: String::new(),
+        metadata_percent: Some(pct),
+        ..StyledSpan::default()
+    }
 }
 
 /// Wrap `value` in `label` unless the spec asks for the raw form.
@@ -196,7 +239,7 @@ fn finite_non_negative(v: Option<f64>) -> Option<f64> {
 
 /// Options for [`format_duration_ms`]. Different widgets want different
 /// tradeoffs — session-clock shows `<1m` because "0m" reads as broken, while
-/// usage-reset timers use `0m` for "resets now". See [[widget_parity_design_v1.1]]
+/// usage-reset timers use `0m` for "resets now"
 /// §4.11 F2 for the consolidation rationale and §4.10 for the metadata
 /// knobs that timer widgets expose to `settings.json`.
 #[derive(Debug, Clone, Copy)]

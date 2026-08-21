@@ -1,0 +1,25 @@
+[package]
+name = "glassline-tui-dsl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Thin DSL over ratatui + crossterm + tui-input for the glassline layout config editor."
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+glassline-core = { path = "../glassline-core" }
+glassline-render = { path = "../glassline-render" }
+ansi-to-tui = { workspace = true }
+ratatui = { workspace = true }
+serde_json = { workspace = true }
+tui-input = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

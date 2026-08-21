@@ -181,6 +181,7 @@ mod tests {
                 workspace: Some(Workspace {
                     current_dir: Some("/right".into()),
                     project_dir: None,
+                    ..Default::default()
                 }),
                 ..Default::default()
             }),

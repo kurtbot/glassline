@@ -3,7 +3,7 @@
 //! Gated on the `sysinfo-widgets` feature (enabled by default). When the
 //! feature is off the widget still registers so `settings.json` doesn't
 //! throw `[Unknown widget]`, but it renders nothing. See
-//! [[widget_parity_design_v1.1]] §12-C1 for the API choice: use
+//! API choice: use
 //! `System::new()` with `refresh_memory()` and read `available_memory()`
 //! (matches TS `os.freemem()` on Linux — MemAvailable-like, not raw MemFree).
 

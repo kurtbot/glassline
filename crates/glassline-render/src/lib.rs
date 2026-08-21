@@ -12,8 +12,11 @@
 pub mod ansi;
 pub mod config;
 pub mod demo;
+pub mod flex;
+pub mod import;
 pub mod install;
 pub mod pipeline;
+pub mod render_cache;
 pub mod stdin_reader;
 pub mod transcript;
 pub mod usage;

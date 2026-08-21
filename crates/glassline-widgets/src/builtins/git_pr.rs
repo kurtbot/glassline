@@ -2,7 +2,7 @@
 //! `#123` (or empty when there's no PR). Port of upstream `GitPr.ts`.
 //!
 //! Uses `gh pr view --json state,number,title` per
-//! [[widget_parity_design_v1.1]] §12-C3. Empty when `gh` is absent,
+//! Empty when `gh` is absent,
 //! unauthenticated, or the branch has no PR.
 
 use glassline_core::{

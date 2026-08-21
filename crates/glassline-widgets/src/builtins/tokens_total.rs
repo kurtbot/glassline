@@ -8,7 +8,9 @@ use glassline_core::{
     widget::{Widget, WidgetRequirements},
 };
 
-use crate::common::{format_tokens, labeled_or_raw, styled};
+use crate::common::{
+    context_window_percent, format_tokens, labeled_or_raw, percent_hint_span, styled,
+};
 
 pub fn factory() -> Box<dyn Widget> {
     Box::new(TokensTotal)
@@ -31,10 +33,16 @@ impl Widget for TokensTotal {
         let Some(m) = ctx.token_metrics.as_ref() else {
             return Vec::new();
         };
-        styled(
+        let mut spans = styled(
             spec,
             labeled_or_raw(spec, "Total: ", &format_tokens(m.total(), 1)),
-        )
+        );
+        if !spans.is_empty()
+            && let Some(pct) = context_window_percent(ctx)
+        {
+            spans.push(percent_hint_span(pct));
+        }
+        spans
     }
 }
 

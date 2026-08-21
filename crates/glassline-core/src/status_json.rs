@@ -58,6 +58,21 @@ pub enum ModelInfo {
 pub struct Workspace {
     pub current_dir: Option<String>,
     pub project_dir: Option<String>,
+    /// Origin-remote identity as parsed by Claude Code itself. Absent
+    /// outside a git repository or when no `origin` remote is configured.
+    /// Present on Claude Code v2.1+.
+    pub repo: Option<WorkspaceRepo>,
+}
+
+/// Repository identity extracted from the `origin` remote by Claude Code.
+/// Wire field names are `host`, `owner`, `name` (glassline internally uses
+/// `repo` for the third component elsewhere; the wire format wins here).
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[serde(default)]
+pub struct WorkspaceRepo {
+    pub host: Option<String>,
+    pub owner: Option<String>,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
@@ -277,6 +292,37 @@ mod tests {
             parsed.extras.get("future_field").and_then(Value::as_str),
             Some("hello")
         );
+    }
+
+    #[test]
+    fn workspace_repo_absent_defaults_to_none() {
+        let parsed: StatusJson =
+            serde_json::from_str(r#"{"workspace":{"current_dir":"/tmp"}}"#).unwrap();
+        assert!(parsed.workspace.and_then(|w| w.repo).is_none());
+    }
+
+    #[test]
+    fn workspace_repo_parses_full_object() {
+        let parsed: StatusJson = serde_json::from_str(
+            r#"{"workspace":{"repo":{"host":"github.com","owner":"kurtbot","name":"glassline"}}}"#,
+        )
+        .unwrap();
+        let repo = parsed.workspace.and_then(|w| w.repo).unwrap();
+        assert_eq!(repo.host.as_deref(), Some("github.com"));
+        assert_eq!(repo.owner.as_deref(), Some("kurtbot"));
+        assert_eq!(repo.name.as_deref(), Some("glassline"));
+    }
+
+    #[test]
+    fn workspace_repo_parses_partial_object() {
+        // Claude Code docs list workspace.repo as "may be absent" but do
+        // not guarantee every sub-field. Only asserting host present.
+        let parsed: StatusJson =
+            serde_json::from_str(r#"{"workspace":{"repo":{"host":"gitlab.com"}}}"#).unwrap();
+        let repo = parsed.workspace.and_then(|w| w.repo).unwrap();
+        assert_eq!(repo.host.as_deref(), Some("gitlab.com"));
+        assert!(repo.owner.is_none());
+        assert!(repo.name.is_none());
     }
 
     #[test]

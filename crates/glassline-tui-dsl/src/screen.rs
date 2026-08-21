@@ -1,0 +1,148 @@
+//! The [`Screen`] trait every editor screen implements, plus the
+//! [`Action`] enum they return from `on_event` and the [`Outcome`] the
+//! top-level app returns from `run`.
+
+use ratatui::crossterm::event::Event;
+
+use glassline_core::settings::Settings;
+
+use crate::ui::Ui;
+
+/// A boxed one-shot mutation applied to the app's scratch [`Settings`].
+pub type SettingsMutator = Box<dyn FnOnce(&mut Settings) + 'static>;
+
+/// Everything an editor screen implements. Screens are heap-boxed and
+/// stacked inside [`crate::app::DslApp`]; only the top of the stack
+/// receives `render` + `on_event` calls each tick.
+pub trait Screen {
+    /// Draw this screen into `ui`. Called on every tick + on every
+    /// dirty-repaint request.
+    fn render(&mut self, ui: &mut Ui);
+
+    /// Handle one input event. Returns an [`Action`] the app applies to
+    /// the screen stack (or `Action::None` to do nothing).
+    fn on_event(&mut self, ev: Event) -> Action;
+
+    /// Human-readable title. Rendered in the top chrome by the app.
+    fn title(&self) -> &str;
+
+    /// Local keybindings surfaced in the footer strip. Each tuple is
+    /// `(key label, action label)` — e.g. `("Enter", "Edit")`. Screens
+    /// return a `&'static` slice so the footer render allocates nothing.
+    fn keybindings(&self) -> &[(&'static str, &'static str)];
+}
+
+/// Screens return an `Action` from `on_event` to drive the screen
+/// stack. The app applies exactly one action per event.
+pub enum Action {
+    /// Do nothing — the screen absorbed the event or ignored it.
+    None,
+    /// Push a new screen on top of the stack.
+    Push(Box<dyn Screen>),
+    /// Pop the current screen. Popping the last screen exits the loop.
+    Pop,
+    /// Replace the current screen without changing stack depth.
+    Replace(Box<dyn Screen>),
+    /// Exit the app. `save = true` means "commit the scratch settings";
+    /// `save = false` means "discard".
+    Quit { save: bool },
+    /// Show a floating toast on the next repaint. Non-blocking — the
+    /// current screen stays active.
+    Toast(String),
+    /// Apply a mutation to the shared scratch [`Settings`]. Marks
+    /// dirty. Screens use this instead of holding their own Settings
+    /// reference so ownership stays with [`crate::app::DslApp`].
+    MutateSettings(SettingsMutator),
+    /// Apply a list of actions in order. `Quit` in the middle
+    /// terminates the sequence.
+    Sequence(Vec<Action>),
+    /// Read-only access to the scratch settings. The callback returns
+    /// another `Action` — typically `Toast` reporting the outcome of a
+    /// side-effecting operation (export, install probe, etc.). Never
+    /// modifies scratch; use `MutateSettings` for that.
+    WithSettings(Box<dyn FnOnce(&Settings) -> Action + 'static>),
+    /// Atomically persist the current scratch [`Settings`] to
+    /// [`crate::app::DslApp::committed_path`]. On success clears the
+    /// dirty flag and fires an OK toast; on failure fires a toast
+    /// with the error text.
+    Save,
+}
+
+impl std::fmt::Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => f.write_str("Action::None"),
+            // `Box<dyn Screen>` isn't Debug — surface the screen's
+            // title instead so tests can eyeball the variant + target.
+            Self::Push(s) => write!(f, "Action::Push({:?})", s.title()),
+            Self::Pop => f.write_str("Action::Pop"),
+            Self::Replace(s) => write!(f, "Action::Replace({:?})", s.title()),
+            Self::Quit { save } => write!(f, "Action::Quit {{ save: {save} }}"),
+            Self::Toast(t) => write!(f, "Action::Toast({t:?})"),
+            Self::MutateSettings(_) => f.write_str("Action::MutateSettings(<closure>)"),
+            Self::Sequence(v) => write!(f, "Action::Sequence({v:?})"),
+            Self::Save => f.write_str("Action::Save"),
+            Self::WithSettings(_) => f.write_str("Action::WithSettings(<closure>)"),
+        }
+    }
+}
+
+/// What [`crate::app::DslApp::run`] returns to the caller once the
+/// screen stack empties (or a screen returned `Action::Quit`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outcome {
+    /// User committed their edits via `Save & Quit` or an equivalent.
+    /// The app's atomic-save path already ran; caller has nothing left
+    /// to do.
+    Saved,
+    /// User exited without saving (or the stack drained via `Pop` all
+    /// the way to empty). Caller may want to prompt for confirmation
+    /// before this happens; that lives in the screen, not here.
+    Discarded,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    /// Trivial screen that pops on any key press. Proves the trait's
+    /// shape compiles and can be instantiated behind `Box<dyn Screen>`.
+    struct HelloScreen;
+
+    impl Screen for HelloScreen {
+        fn render(&mut self, _ui: &mut Ui) {}
+        fn on_event(&mut self, _ev: Event) -> Action {
+            Action::Pop
+        }
+        fn title(&self) -> &str {
+            "Hello"
+        }
+        fn keybindings(&self) -> &[(&'static str, &'static str)] {
+            &[("Any", "Pop")]
+        }
+    }
+
+    #[test]
+    fn hello_screen_boxes_as_dyn_screen() {
+        let boxed: Box<dyn Screen> = Box::new(HelloScreen);
+        assert_eq!(boxed.title(), "Hello");
+        assert_eq!(boxed.keybindings(), &[("Any", "Pop")]);
+    }
+
+    #[test]
+    fn hello_screen_pops_on_any_event() {
+        let mut screen = HelloScreen;
+        let ev = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        match screen.on_event(ev) {
+            Action::Pop => {}
+            _ => panic!("expected Action::Pop"),
+        }
+    }
+
+    #[test]
+    fn outcome_is_comparable() {
+        assert_eq!(Outcome::Saved, Outcome::Saved);
+        assert_ne!(Outcome::Saved, Outcome::Discarded);
+    }
+}

@@ -3,7 +3,6 @@
 //! Isolates the `ureq` call, error classification, `Retry-After`
 //! parsing, and proxy resolution (`HTTPS_PROXY`/`NO_PROXY`) so the
 //! top-level orchestrator in `mod.rs` stays readable. See
-//! [[usage_hardening_design_v1.2]] §4.3.
 
 use std::time::Duration;
 
