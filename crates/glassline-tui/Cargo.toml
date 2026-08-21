@@ -27,6 +27,7 @@ ratatui = { workspace = true }
 ansi-to-tui = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
+which = { workspace = true }
 
 [dev-dependencies]
 insta = { workspace = true }
