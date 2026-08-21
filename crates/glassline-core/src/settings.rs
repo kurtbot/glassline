@@ -18,7 +18,10 @@ use crate::color::ColorLevel;
 pub const CURRENT_VERSION: u32 = 3;
 
 /// Top-level `settings.json` shape. `#[serde(default)]` on every field so a
-/// half-populated file (or a legacy v1 file) still deserializes.
+/// half-populated file (or a legacy v1 file) still deserializes. Every
+/// Option carries `skip_serializing_if = "Option::is_none"` so the
+/// editor's atomic save writes only fields the user actually set —
+/// otherwise every widget balloons to ~24 rows of `"foo": null`.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
@@ -28,17 +31,23 @@ pub struct Settings {
     pub flex_mode: FlexMode,
     pub compact_threshold: u32,
     pub color_level: ColorLevel,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_separator: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default_padding: Option<String>,
     pub default_padding_side: DefaultPaddingSide,
     pub inherit_separator_colors: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub override_background_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub override_foreground_color: Option<String>,
     pub global_bold: bool,
     pub git_cache_ttl_seconds: u32,
     pub minimalist_mode: bool,
     pub powerline: PowerlineConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub update_message: Option<UpdateMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub installation: Option<InstallationMetadata>,
     /// User-facing update-checker toggle (design §4.18). Default false.
     pub update_checker: UpdateCheckerSettings,
@@ -108,29 +117,51 @@ pub struct WidgetSpec {
     pub id: String,
     #[serde(rename = "type")]
     pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub background_color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bold: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dim: Option<DimSetting>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub character: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_value: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_width: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub preserve_colors: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub merge: Option<MergeSetting>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hide: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub exclude_from_auto_align: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<BTreeMap<String, String>>,
 
     // External-widget config (design §4.11).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub config: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout_ms: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_ttl_ms: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub legacy_plaintext: Option<bool>,
 }
 
