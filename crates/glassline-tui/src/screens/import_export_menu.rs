@@ -189,17 +189,18 @@ impl ImportExportMenu {
     fn push_export_prompt(&self) -> Action {
         Action::Push(Box::new(TextEditModal::new(
             "export path",
-            "e.g. ./glassline-export.json",
+            "file OR folder — folders get glassline-settings.json auto-appended",
             None,
             500,
             |v| {
                 let Some(path_str) = v else {
                     return Action::Toast("Export cancelled".into());
                 };
-                let path = PathBuf::from(path_str.trim());
-                if path.as_os_str().is_empty() {
+                let raw = path_str.trim();
+                if raw.is_empty() {
                     return Action::Toast("Empty path — export cancelled".into());
                 }
+                let path = resolve_export_path(raw);
                 // Read-only access to scratch — export just serializes
                 // it and writes; no mutation. Toast reports outcome so
                 // stderr doesn't leak into the alt-screen.
@@ -214,6 +215,23 @@ impl ImportExportMenu {
     }
 }
 
+const DEFAULT_EXPORT_FILENAME: &str = "glassline-settings.json";
+
+/// If the user gave us a directory (existing or trailing-slash),
+/// append the default filename so the write lands *inside* it rather
+/// than trying to overwrite the directory itself.
+fn resolve_export_path(raw: &str) -> PathBuf {
+    let looks_like_dir = raw.ends_with('/') || raw.ends_with('\\');
+    let path = PathBuf::from(raw);
+    if looks_like_dir || path.is_dir() {
+        return path.join(DEFAULT_EXPORT_FILENAME);
+    }
+    // If the path exists but is a file, keep it as-is (user is
+    // choosing to overwrite). Otherwise: honour the exact name they
+    // typed — they probably know what they want.
+    path
+}
+
 fn export_settings(path: &std::path::Path, settings: &Settings) -> Result<(), String> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -223,4 +241,34 @@ fn export_settings(path: &std::path::Path, settings: &Settings) -> Result<(), St
     let bytes = serde_json::to_vec_pretty(settings).map_err(|e| format!("serialize: {e}"))?;
     std::fs::write(path, bytes).map_err(|e| format!("write {}: {e}", path.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_export_path_appends_default_when_trailing_slash() {
+        let p = resolve_export_path("C:/Users/kurt/");
+        assert_eq!(p.file_name().unwrap(), DEFAULT_EXPORT_FILENAME);
+    }
+
+    #[test]
+    fn resolve_export_path_appends_default_when_trailing_backslash() {
+        let p = resolve_export_path(r"C:\Users\kurt\");
+        assert_eq!(p.file_name().unwrap(), DEFAULT_EXPORT_FILENAME);
+    }
+
+    #[test]
+    fn resolve_export_path_keeps_file_path_verbatim() {
+        let p = resolve_export_path("C:/Users/kurt/foo.json");
+        assert_eq!(p.file_name().unwrap(), "foo.json");
+    }
+
+    #[test]
+    fn resolve_export_path_bare_name_untouched() {
+        // No slash and doesn't exist — keep as-is; write will land in cwd.
+        let p = resolve_export_path("my-export.json");
+        assert_eq!(p.file_name().unwrap(), "my-export.json");
+    }
 }
