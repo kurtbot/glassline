@@ -228,10 +228,9 @@ fn dispatch(action: MenuAction) -> Action {
         MenuAction::ImportExport => {
             Action::Push(Box::new(crate::screens::ImportExportMenu::default()))
         }
-        MenuAction::InstallUninstall => Action::Push(Box::new(Placeholder::new(
-            "Install / Uninstall",
-            "Claude Code wiring lands in P5.",
-        ))),
+        MenuAction::InstallUninstall => {
+            Action::Push(Box::new(crate::screens::InstallMenu::default()))
+        }
         MenuAction::Diagnostics => Action::Push(Box::new(crate::screens::DiagnosticsScreen)),
     }
 }
