@@ -27,6 +27,20 @@ impl TerminalOptionsMenu {
 
 const FLEX_MODES: &[&str] = &["full", "full-minus-40", "full-until-compact"];
 
+const FLEX_LADDER: &[FlexMode] = &[
+    FlexMode::Full,
+    FlexMode::FullMinus40,
+    FlexMode::FullUntilCompact,
+];
+
+/// Sensible bounds for the two integer knobs.
+const COMPACT_MIN: u32 = 20;
+const COMPACT_MAX: u32 = 200;
+const COMPACT_STEP: u32 = 5;
+const GIT_TTL_MIN: u32 = 0;
+const GIT_TTL_MAX: u32 = 3_600;
+const GIT_TTL_STEP: u32 = 1;
+
 fn flex_mode_as_str(m: FlexMode) -> &'static str {
     match m {
         FlexMode::Full => "full",
@@ -42,6 +56,50 @@ fn parse_flex_mode(s: &str) -> Option<FlexMode> {
         "full-until-compact" => FlexMode::FullUntilCompact,
         _ => return None,
     })
+}
+
+/// Step the focused row by `delta` (−1 = Left, +1 = Right).
+///
+/// - Row 0 (flex mode): cycle through the ladder, wrapping.
+/// - Row 1 (compact threshold): ±5 cols, clamped to `[20, 200]`.
+/// - Row 2 (git cache TTL): ±1 s, clamped to `[0, 3600]`.
+/// - Row 3 (minimalist): toggle.
+fn step_focused(focus: usize, delta: i32) -> Action {
+    Action::MutateSettings(Box::new(move |s| match focus {
+        0 => s.flex_mode = step_flex(s.flex_mode, delta),
+        1 => {
+            s.compact_threshold = step_clamped(
+                s.compact_threshold,
+                delta,
+                COMPACT_STEP,
+                COMPACT_MIN,
+                COMPACT_MAX,
+            )
+        }
+        2 => {
+            s.git_cache_ttl_seconds = step_clamped(
+                s.git_cache_ttl_seconds,
+                delta,
+                GIT_TTL_STEP,
+                GIT_TTL_MIN,
+                GIT_TTL_MAX,
+            )
+        }
+        3 => s.minimalist_mode = !s.minimalist_mode,
+        _ => {}
+    }))
+}
+
+fn step_flex(current: FlexMode, delta: i32) -> FlexMode {
+    let cur_idx = FLEX_LADDER.iter().position(|m| *m == current).unwrap_or(0) as i32;
+    let len = FLEX_LADDER.len() as i32;
+    let next = (cur_idx + delta).rem_euclid(len) as usize;
+    FLEX_LADDER[next]
+}
+
+fn step_clamped(current: u32, delta: i32, step: u32, min: u32, max: u32) -> u32 {
+    let signed = i64::from(current) + i64::from(delta) * i64::from(step);
+    signed.clamp(i64::from(min), i64::from(max)) as u32
 }
 
 fn rows(settings: &Settings) -> Vec<(String, String)> {
@@ -77,7 +135,8 @@ impl Screen for TerminalOptionsMenu {
     fn keybindings(&self) -> &[(&'static str, &'static str)] {
         &[
             ("↑/↓", "Focus"),
-            ("Enter", "Edit"),
+            ("←/→", "Step value"),
+            ("Enter", "Pick from list"),
             ("Space", "Toggle bool"),
             ("Esc", "Back"),
         ]
@@ -109,7 +168,7 @@ impl Screen for TerminalOptionsMenu {
         });
         ui.render_widget(
             Paragraph::new(Line::from(vec![Span::styled(
-                "Enter to edit · Space toggles minimalist · Esc to go back",
+                "←/→ steps values inline · Enter opens the full list · Esc goes back",
                 Style::default().add_modifier(Modifier::DIM),
             )])),
             hint,
@@ -133,6 +192,8 @@ impl Screen for TerminalOptionsMenu {
                 }
                 Action::None
             }
+            KeyCode::Left => step_focused(self.focus, -1),
+            KeyCode::Right => step_focused(self.focus, 1),
             KeyCode::Char(' ') => {
                 if self.focus == 3 {
                     Action::MutateSettings(Box::new(|s| {
@@ -198,5 +259,49 @@ impl Screen for TerminalOptionsMenu {
             },
             _ => Action::None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn step_flex_cycles_forward_and_wraps() {
+        assert_eq!(step_flex(FlexMode::Full, 1), FlexMode::FullMinus40);
+        assert_eq!(
+            step_flex(FlexMode::FullMinus40, 1),
+            FlexMode::FullUntilCompact
+        );
+        assert_eq!(step_flex(FlexMode::FullUntilCompact, 1), FlexMode::Full);
+    }
+
+    #[test]
+    fn step_flex_cycles_backward_and_wraps() {
+        assert_eq!(step_flex(FlexMode::Full, -1), FlexMode::FullUntilCompact);
+        assert_eq!(
+            step_flex(FlexMode::FullUntilCompact, -1),
+            FlexMode::FullMinus40
+        );
+    }
+
+    #[test]
+    fn step_clamped_advances_by_step() {
+        assert_eq!(step_clamped(60, 1, 5, 20, 200), 65);
+        assert_eq!(step_clamped(60, -1, 5, 20, 200), 55);
+    }
+
+    #[test]
+    fn step_clamped_saturates_at_edges() {
+        assert_eq!(step_clamped(200, 1, 5, 20, 200), 200);
+        assert_eq!(step_clamped(20, -1, 5, 20, 200), 20);
+    }
+
+    #[test]
+    fn step_clamped_handles_out_of_band_current() {
+        // If a user hand-edits their config outside the band, we still
+        // step from where they were, then clamp back into range.
+        assert_eq!(step_clamped(500, -1, 5, 20, 200), 200);
+        assert_eq!(step_clamped(5, 1, 5, 20, 200), 20);
     }
 }
