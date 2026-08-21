@@ -222,7 +222,9 @@ fn dispatch(action: MenuAction) -> Action {
         MenuAction::TerminalOptions => {
             Action::Push(Box::new(crate::screens::TerminalOptionsMenu::default()))
         }
-        MenuAction::UpdateChecker => Action::Push(Box::new(crate::screens::UpdateCheckerMenu)),
+        MenuAction::UpdateChecker => {
+            Action::Push(Box::new(crate::screens::UpdateCheckerMenu::default()))
+        }
         MenuAction::ImportExport => {
             Action::Push(Box::new(crate::screens::ImportExportMenu::default()))
         }

@@ -276,11 +276,27 @@ pub struct UpdateMessage {
     pub remaining: Option<i64>,
 }
 
-/// User-facing update-checker toggle (design §4.18).
+/// User-facing update-checker toggle + cadence. The actual periodic
+/// check isn't wired into the render binary yet — these fields are the
+/// schema/UI half of the feature so users can persist their preferred
+/// cadence in `settings.json` ahead of the implementation.
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Default)]
 #[serde(default, rename_all = "camelCase")]
 pub struct UpdateCheckerSettings {
     pub enabled: bool,
+    /// Check every N hours since `last_check_epoch`. `None` = don't
+    /// use interval-based scheduling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval_hours: Option<u32>,
+    /// Also check once per day at this local-time hour (0-23). `None`
+    /// = don't use time-of-day scheduling. If both `interval_hours`
+    /// and `daily_at_hour` are set, whichever fires first triggers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub daily_at_hour: Option<u8>,
+    /// Unix epoch seconds of the last successful check. `None` = the
+    /// implementation hasn't checked yet.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_check_epoch: Option<u64>,
 }
 
 /// How the CLI got installed. `method` is the tag.
