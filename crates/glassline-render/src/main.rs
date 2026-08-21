@@ -20,7 +20,7 @@ use std::{io::Write, path::PathBuf, process::ExitCode};
 
 use glassline_core::{
     color::Color,
-    render_context::RenderContext,
+    render_context::{BlockMetrics, RenderContext},
     settings::{Settings, WidgetSpec},
     span::StyledSpan,
     status_json::StatusJson,
@@ -208,6 +208,16 @@ fn run_render(args: &[String]) -> ExitCode {
                 usage_data.error,
             ),
         );
+        // Populate BlockMetrics from the 5-hour bucket's reset stamp
+        // so `block-reset-timer` / `block-timer` widgets render. Only
+        // `resets_at` is needed for the timer countdown; `block_id`
+        // and `started_at` remain None until Claude Code ships them.
+        if let Some(resets_at) = usage_data.session_reset_at.clone() {
+            ctx.block_metrics = Some(BlockMetrics {
+                resets_at: Some(resets_at),
+                ..Default::default()
+            });
+        }
         ctx.usage_data = Some(usage_data);
     }
 
