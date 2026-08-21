@@ -18,10 +18,12 @@ use ratatui::{
 use glassline_core::settings::{Settings, WidgetSpec};
 use glassline_tui_dsl::{Action, Panel, Preview, Screen, Ui};
 
-use crate::meta::{METAS, MetaKnob, Styling, WidgetKnob, WidgetMeta};
+use crate::meta::{METAS, MetaKnob, MetaShape, Styling, WidgetKnob, WidgetMeta};
 use crate::preview_ctx::canned_context;
+use crate::screens::choice_modal::ChoiceModal;
 use crate::screens::color_menu::ColorMenu;
 use crate::screens::main_menu::preview_height;
+use crate::screens::text_edit_modal::TextEditModal;
 
 pub struct WidgetEditor {
     line_index: usize,
@@ -30,6 +32,21 @@ pub struct WidgetEditor {
     /// Cached count of visible rows so we can wrap focus without
     /// re-querying WidgetMeta every keypress.
     last_row_count: usize,
+    /// The rows list from the last render — cached so `on_event`
+    /// (which doesn't have access to `Ui.settings`) can dispatch to
+    /// the right knob editor for the focused row.
+    cached_rows: Vec<CachedRow>,
+}
+
+/// Enough info about a row for `on_event` dispatch. Doesn't hold the
+/// current value — the editor sub-modal re-reads from settings via a
+/// MutateSettings closure.
+#[derive(Debug, Clone)]
+enum CachedRow {
+    Color,
+    Meta(&'static MetaKnob),
+    Value,
+    Raw,
 }
 
 impl WidgetEditor {
@@ -40,6 +57,7 @@ impl WidgetEditor {
             widget_index,
             focus: 0,
             last_row_count: 1,
+            cached_rows: Vec::new(),
         }
     }
 
@@ -96,7 +114,12 @@ impl Screen for WidgetEditor {
         "Widget editor"
     }
     fn keybindings(&self) -> &[(&'static str, &'static str)] {
-        &[("↑/↓", "Focus"), ("Enter", "Edit knob"), ("Esc", "Back")]
+        &[
+            ("↑/↓", "Focus"),
+            ("Enter", "Edit"),
+            ("Space", "Toggle bool"),
+            ("Esc", "Back"),
+        ]
     }
     fn render(&mut self, ui: &mut Ui) {
         let Some(spec) = self.spec(ui.settings).cloned() else {
@@ -113,6 +136,17 @@ impl Screen for WidgetEditor {
         if self.focus >= rows.len() {
             self.focus = rows.len().saturating_sub(1);
         }
+        // Cache row-type info so on_event can dispatch without re-
+        // querying WidgetMeta (and without needing Ui.settings).
+        self.cached_rows = rows
+            .iter()
+            .map(|r| match r {
+                Row::Color(_) => CachedRow::Color,
+                Row::Meta(mk, _) => CachedRow::Meta(mk),
+                Row::Value(_) => CachedRow::Value,
+                Row::Raw => CachedRow::Raw,
+            })
+            .collect();
 
         let area = ui.area();
         let preview_h = preview_height(ui.settings.lines.len());
@@ -190,6 +224,7 @@ impl Screen for WidgetEditor {
                 }
                 Action::None
             }
+            KeyCode::Char(' ') => self.toggle_focused_bool(),
             KeyCode::Enter => self.activate_focused(),
             _ => Action::None,
         }
@@ -198,36 +233,144 @@ impl Screen for WidgetEditor {
 
 impl WidgetEditor {
     fn activate_focused(&self) -> Action {
-        // This method only produces the initial Action; the actual
-        // knob-row list is rebuilt inside the ColorMenu / knob-editor
-        // closure via a MutateSettings that captures line + widget
-        // indices. We don't need to hold a full Row here.
         let line = self.line_index;
         let widget = self.widget_index;
-        let focus = self.focus;
-
-        Action::Push(Box::new(ColorMenu::new(
-            "Foreground color",
-            None,
-            move |pick| {
-                let Some(name) = pick else {
-                    return Action::None;
-                };
-                Action::MutateSettings(Box::new(move |s| {
-                    if let Some(row) = s.lines.get_mut(line)
-                        && let Some(spec) = row.get_mut(widget)
-                    {
-                        // Only actually apply the color if the focused row
-                        // was the color row (row 0 when Standard styling).
-                        if focus == 0 {
+        let Some(row) = self.cached_rows.get(self.focus).cloned() else {
+            return Action::None;
+        };
+        match row {
+            CachedRow::Color => Action::Push(Box::new(ColorMenu::new(
+                "Foreground color",
+                None,
+                move |pick| {
+                    let Some(name) = pick else {
+                        return Action::None;
+                    };
+                    Action::MutateSettings(Box::new(move |s| {
+                        if let Some(row) = s.lines.get_mut(line)
+                            && let Some(spec) = row.get_mut(widget)
+                        {
                             spec.color = Some(name);
                         }
-                        // For non-color rows in v1.0 the color menu is a
-                        // no-op; a proper knob-type dispatch lands in
-                        // follow-up commits within P3.
-                    }
-                }))
-            },
-        )))
+                    }))
+                },
+            ))),
+            CachedRow::Value => Action::Push(Box::new(TextEditModal::new(
+                "value",
+                "text (custom-text / link label)",
+                None,
+                200,
+                move |v| {
+                    Action::MutateSettings(Box::new(move |s| {
+                        if let Some(row) = s.lines.get_mut(line)
+                            && let Some(spec) = row.get_mut(widget)
+                        {
+                            spec.custom_text = v;
+                        }
+                    }))
+                },
+            ))),
+            CachedRow::Meta(mk) => dispatch_meta_knob(line, widget, mk),
+            CachedRow::Raw => {
+                Action::Toast("Raw JSON editor lands in T3.11. Use the file editor for now.".into())
+            }
+        }
     }
+
+    fn toggle_focused_bool(&self) -> Action {
+        let Some(CachedRow::Meta(mk)) = self.cached_rows.get(self.focus).cloned() else {
+            return Action::None;
+        };
+        let MetaShape::Bool { .. } = mk.shape else {
+            return Action::None;
+        };
+        let line = self.line_index;
+        let widget = self.widget_index;
+        Action::MutateSettings(Box::new(move |s| {
+            if let Some(spec) = s.lines.get_mut(line).and_then(|row| row.get_mut(widget)) {
+                toggle_bool_key(spec, mk.key);
+            }
+        }))
+    }
+}
+
+/// Route a `MetaKnob` to the appropriate editor sub-modal.
+fn dispatch_meta_knob(line: usize, widget: usize, mk: &'static MetaKnob) -> Action {
+    match &mk.shape {
+        MetaShape::Text { hint, max_len } => Action::Push(Box::new(TextEditModal::new(
+            mk.label.to_string(),
+            hint.to_string(),
+            None,
+            *max_len,
+            move |v| write_meta_str(line, widget, mk.key, v),
+        ))),
+        MetaShape::Bool { .. } => Action::Toast(
+            "Bool knob: press Space on the row to toggle (Enter is reserved for text/choice knobs)."
+                .into(),
+        ),
+        MetaShape::Choice { options } => Action::Push(Box::new(ChoiceModal::new(
+            mk.label.to_string(),
+            options,
+            None,
+            move |v| write_meta_str(line, widget, mk.key, v),
+        ))),
+        MetaShape::Integer { min, max, default } => {
+            let min = *min;
+            let max = *max;
+            let default = *default;
+            Action::Push(Box::new(TextEditModal::new(
+                mk.label.to_string(),
+                format!("integer in [{min}, {max}], default {default}"),
+                None,
+                12,
+                move |v| {
+                    let Some(text) = v else {
+                        return write_meta_str(line, widget, mk.key, None);
+                    };
+                    match text.parse::<u32>() {
+                        Ok(n) if n >= min && n <= max => {
+                            write_meta_str(line, widget, mk.key, Some(text))
+                        }
+                        _ => Action::Toast(format!(
+                            "\"{text}\" is not a valid integer in [{min}, {max}]"
+                        )),
+                    }
+                },
+            )))
+        }
+    }
+}
+
+fn write_meta_str(line: usize, widget: usize, key: &'static str, value: Option<String>) -> Action {
+    Action::MutateSettings(Box::new(move |s| {
+        let Some(spec) = s.lines.get_mut(line).and_then(|row| row.get_mut(widget)) else {
+            return;
+        };
+        let map = spec
+            .metadata
+            .get_or_insert_with(std::collections::BTreeMap::new);
+        match value {
+            Some(v) => {
+                map.insert(key.to_string(), v);
+            }
+            None => {
+                map.remove(key);
+            }
+        }
+    }))
+}
+
+/// Flip the `"true"`/`"false"`/absent metadata triple. Absent → "true"
+/// on first toggle; then round-trips normally.
+fn toggle_bool_key(spec: &mut WidgetSpec, key: &str) {
+    let meta = spec
+        .metadata
+        .get_or_insert_with(std::collections::BTreeMap::new);
+    let current = meta.get(key).map(String::as_str);
+    let next = match current {
+        Some("true") => "false",
+        Some("false") => "true",
+        _ => "true",
+    };
+    meta.insert(key.to_string(), next.to_string());
 }
