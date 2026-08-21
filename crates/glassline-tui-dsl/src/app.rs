@@ -250,6 +250,10 @@ impl DslApp {
                 }
                 None
             }
+            Action::WithSettings(f) => {
+                let next = f(&self.scratch);
+                self.apply(next)
+            }
             Action::Save => {
                 let toast = match atomic_save(&self.scratch, &self.committed_path) {
                     Ok(()) => {

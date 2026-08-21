@@ -56,6 +56,11 @@ pub enum Action {
     /// Apply a list of actions in order. `Quit` in the middle
     /// terminates the sequence.
     Sequence(Vec<Action>),
+    /// Read-only access to the scratch settings. The callback returns
+    /// another `Action` — typically `Toast` reporting the outcome of a
+    /// side-effecting operation (export, install probe, etc.). Never
+    /// modifies scratch; use `MutateSettings` for that.
+    WithSettings(Box<dyn FnOnce(&Settings) -> Action + 'static>),
     /// Atomically persist the current scratch [`Settings`] to
     /// [`crate::app::DslApp::committed_path`]. On success clears the
     /// dirty flag and fires an OK toast; on failure fires a toast
@@ -77,6 +82,7 @@ impl std::fmt::Debug for Action {
             Self::MutateSettings(_) => f.write_str("Action::MutateSettings(<closure>)"),
             Self::Sequence(v) => write!(f, "Action::Sequence({v:?})"),
             Self::Save => f.write_str("Action::Save"),
+            Self::WithSettings(_) => f.write_str("Action::WithSettings(<closure>)"),
         }
     }
 }

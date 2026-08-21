@@ -216,17 +216,13 @@ impl ImportExportMenu {
                 if path.as_os_str().is_empty() {
                     return Action::Toast("Empty path — export cancelled".into());
                 }
-                Action::MutateSettings(Box::new(move |s| {
-                    match export_settings(&path, s) {
-                        Ok(()) => {}
-                        Err(err) => {
-                            // We can't Action::Toast from inside a
-                            // MutateSettings closure — best-effort log
-                            // through eprintln (the parent screen's
-                            // banner will still show a generic hint on
-                            // next render).
-                            eprintln!("export failed: {err}");
-                        }
+                // Read-only access to scratch — export just serializes
+                // it and writes; no mutation. Toast reports outcome so
+                // stderr doesn't leak into the alt-screen.
+                Action::WithSettings(Box::new(move |settings| {
+                    match export_settings(&path, settings) {
+                        Ok(()) => Action::Toast(format!("Exported to {}", path.display())),
+                        Err(err) => Action::Toast(format!("Export failed: {err}")),
                     }
                 }))
             },
