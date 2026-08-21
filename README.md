@@ -1,8 +1,20 @@
 # glassline
 
+<p align="center">
+  <img src="docs/screenshots/status-line-dev.svg" alt="glassline status line — Dev template" width="720">
+  <br/>
+  <em>Rendered by the actual pipeline. Two-line Dev-template output.</em>
+</p>
+
 ## Overview
 
 Rust port of [ccstatusline](https://github.com/sirmalloc/ccstatusline) — a customizable status line formatter for the Claude Code CLI. Reads Claude Code's `StatusJSON` payload on stdin and writes an ANSI status line to stdout: current model, context-window usage, git and jujutsu state, session/weekly usage percentages, token throughput, PR/CI status, and more — driven by a JSON config that matches the upstream schema.
+
+<p align="center">
+  <img src="docs/screenshots/status-line-powerline.svg" alt="glassline status line — Power-user template with powerline separators" width="720">
+  <br/>
+  <em>Power-user template with powerline separators + auto-align.</em>
+</p>
 
 **Widget catalog:** 90 canonical widgets + 6 upstream aliases resolve in the built-in registry — full parity with the upstream ccstatusline catalog covering context, tokens, git, jj, session, usage, cache, timing, custom-text, and system widgets (sandbox / voice / remote-control / claude-account-email / vim-mode / cache-timer all ported).
 
@@ -79,7 +91,19 @@ Prebuilt raw archives + `SHA256SUMS.txt` are on the [Releases](https://github.co
 
 Type `glassline` in any terminal (with no piped input) — the render binary detects the TTY and forwards to the editor.
 
+<p align="center">
+  <img src="docs/screenshots/editor-main-menu.svg" alt="glassline editor — main menu" width="720">
+  <br/>
+  <em>Main menu — live preview strip on top, ten menu entries, category-tinted rows.</em>
+</p>
+
 **First run** opens a wizard: welcome → template pick (Minimal / Dev / Power user, with live preview of each) → color-level confirm (auto-detected from `$COLORTERM` / `$TERM` / `$WT_SESSION`) → optional `glassline install --user` right then and there. Any step accepts `Esc` to skip.
+
+<p align="center">
+  <img src="docs/screenshots/editor-wizard.svg" alt="glassline editor — first-run wizard, welcome step" width="720">
+  <br/>
+  <em>First-run wizard (welcome step).</em>
+</p>
 
 **Later runs** land on the main menu:
 
@@ -97,6 +121,14 @@ Type `glassline` in any terminal (with no piped input) — the render binary det
 | Quit | Exit (prompts if there are unsaved changes). |
 
 **Widget editor** (Enter on a widget row): ↑/↓ focuses a knob, Enter opens the appropriate sub-modal (Color menu — Basic16 / Ansi256 / Truecolor, with `Tab` cycling modes; Text input; Choice list; Integer input with min/max validation), Space toggles Bool knobs inline, Esc reverts screen-local edits, Ctrl-S keeps them. A live preview strip at the top of every screen shows what the hot path would render with the current scratch settings — colors survive through `ansi-to-tui`.
+
+<p align="center">
+  <img src="docs/screenshots/editor-widget-color.svg" alt="glassline editor — Basic16 color picker" width="720">
+  <br/>
+  <em>Basic16 color picker — Tab cycles Basic16 / Ansi256 / Truecolor.</em>
+</p>
+
+The gallery lives under [`docs/screenshots/`](./docs/screenshots) — regenerate with `glassline-tui --emit-screenshots docs/screenshots`.
 
 **Non-interactive flags** for scripted workflows:
 
