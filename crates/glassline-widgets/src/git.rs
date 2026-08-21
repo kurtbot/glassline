@@ -310,7 +310,8 @@ pub fn get_git_remote(ctx: &RenderContext, remote_name: &str) -> Option<GitRemot
 /// benefiting from the ~5–15 ms saved shell-out whenever Claude Code
 /// populates the field.
 ///
-/// See `statusjson_native_repo_design_v1.0` for the full contract.
+/// Native branch returns the same `GitRemote` shape as the fallback so
+/// callers don't need to know which path fired.
 #[must_use]
 pub fn get_git_origin(ctx: &RenderContext) -> Option<GitRemote> {
     if let Some(data) = ctx.data.as_ref()

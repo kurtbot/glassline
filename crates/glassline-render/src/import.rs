@@ -1,6 +1,5 @@
 //! `glassline import` — one-shot migrator from ccstatusline to glassline.
 //!
-//! Design ref: [[ccstatusline_import_design_v1.0]].
 //!
 //! Reads a ccstatusline `settings.json`, runs the same
 //! [`glassline_core::migration::migrate_value`] the hot path uses, writes
@@ -203,7 +202,6 @@ pub fn run_import(opts: &ImportOpts) -> Result<ImportReport, ImportError> {
 
 /// Render an [`ImportReport`] as human-readable text.
 ///
-/// Layout mirrors [[ccstatusline_import_design_v1.0]] §4.4.
 #[must_use]
 pub fn render_report(report: &ImportReport, opts: &ImportOpts) -> String {
     let mut out = String::new();

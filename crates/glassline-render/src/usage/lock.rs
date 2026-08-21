@@ -5,8 +5,6 @@
 //! Retry-After / rate-limit windows collectively. Non-blocking: on
 //! contention we return stale cache instead of waiting.
 //!
-//! See [[usage_hardening_design_v1.2]] §4.1 for the full contract; T-2.1
-//! of [[usage_hardening_impl_plan_v1.0]] for this file's scope.
 
 use std::{
     fs::{File, OpenOptions},

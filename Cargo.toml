@@ -4,11 +4,13 @@ members = [
     "crates/glassline-core",
     "crates/glassline-render",
     "crates/glassline-testkit",
+    "crates/glassline-tui",
+    "crates/glassline-tui-dsl",
     "crates/glassline-widgets",
 ]
 
 [workspace.package]
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT"
@@ -45,6 +47,14 @@ sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 ureq = { version = "2", default-features = false, features = ["tls"] }
 wait-timeout = "0.2"
 time = { version = "0.3", features = ["parsing", "formatting", "macros"] }
+
+# Cold-path TUI editor deps (P4 — layout-config-editor).
+# ratatui with default features re-exports crossterm; tui-input's default
+# backend targets `ratatui::crossterm`, so we don't need a separate
+# `crossterm` workspace dep.
+ratatui = "0.30"
+tui-input = "0.15"
+ansi-to-tui = "8"
 
 # Test-only
 insta = { version = "1", features = ["yaml", "json", "redactions"] }

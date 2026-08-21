@@ -9,7 +9,7 @@
 //! and may push informational or defect-warning entries as it rewrites the
 //! value. Warnings are non-fatal: the migration proceeds either way, but the
 //! caller can surface them (see `glassline import`'s report per
-//! [[ccstatusline_import_design_v1.0]] §4.4) or discard them (the hot-path
+//! import subcommand) or discard them (the hot-path
 //! render loader logs them at DEBUG and moves on).
 
 use serde_json::Value;

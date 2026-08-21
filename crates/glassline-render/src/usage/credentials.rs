@@ -4,7 +4,6 @@
 //! `~/.claude/.credentials.json`). On macOS the resolver also checks
 //! the `Claude Code-credentials` Keychain entry and returns whichever
 //! source has the newer modification time. See
-//! [[usage_hardening_design_v1.2]] §4.2.
 
 use std::{fs, path::PathBuf, time::UNIX_EPOCH};
 

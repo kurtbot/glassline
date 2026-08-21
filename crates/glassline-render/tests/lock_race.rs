@@ -1,5 +1,5 @@
 //! Two-process race for `UsageLock`. Verifies D3 semantics from
-//! [[usage_hardening_design_v1.2]] §4.1: on contention, `try_acquire`
+//! On contention, `try_acquire`
 //! returns `None` immediately (no spin); after the holder drops the
 //! lock, a subsequent process can acquire.
 //!

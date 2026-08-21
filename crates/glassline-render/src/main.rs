@@ -6,9 +6,15 @@
 //! Argv handled by a hand-rolled parser (clap stays out of the hot path per
 //! design §4.1). Subcommands:
 //!   * `install`   / `uninstall`   — wire glassline into Claude Code
+//!   * `import`                    — one-shot migrate ccstatusline → glassline
+//!   * `demo`                      — preview an animation without piping stdin
 //!   * `--version` / `-V`          — print version + exit
 //!   * `--help`    / `-h`          — usage
 //!   * `--config <path>`           — override settings.json path
+//!
+//! TTY shim: bare `glassline` in a terminal (no stdin, no args) exec's
+//! `glassline-tui` if it's installed next to the render binary. Piped
+//! stdin (Claude Code invoking us) proceeds to render mode normally.
 //!
 //! Render mode (no subcommand): slurp stdin, load config, render pipeline,
 //! write to stdout. On the P1 slice a **first-run** load falls back to a
@@ -16,11 +22,15 @@
 //! customise anything. Once real MVP widgets ship (T-1.7+), the first-run
 //! defaults will produce a useful line on their own.
 
-use std::{io::Write, path::PathBuf, process::ExitCode};
+use std::{
+    io::{IsTerminal, Write},
+    path::PathBuf,
+    process::{Command, ExitCode},
+};
 
 use glassline_core::{
     color::Color,
-    render_context::RenderContext,
+    render_context::{BlockMetrics, RenderContext},
     settings::{Settings, WidgetSpec},
     span::StyledSpan,
     status_json::StatusJson,
@@ -58,7 +68,53 @@ fn main() -> ExitCode {
                 print_help();
                 return ExitCode::SUCCESS;
             }
+            // TTY shim: bare `glassline` in a terminal with no piped
+            // stdin means the user typed the command by hand — send
+            // them to the editor. Piped input (Claude Code invoking us)
+            // proceeds to render_mode normally.
+            if raw_args.is_empty() && std::io::stdin().is_terminal() {
+                return exec_tui();
+            }
             run_render(&raw_args)
+        }
+    }
+}
+
+/// Spawn the sibling `glassline-tui` binary and forward its exit code.
+/// Skipping the shim (falling through to render mode) is the fallback
+/// when the editor isn't installed — the user sees the usual "no
+/// stdin" message and can install it separately.
+fn exec_tui() -> ExitCode {
+    let Ok(exe) = std::env::current_exe() else {
+        return run_render(&[]);
+    };
+    let Some(dir) = exe.parent() else {
+        return run_render(&[]);
+    };
+    let editor = dir.join(if cfg!(windows) {
+        "glassline-tui.exe"
+    } else {
+        "glassline-tui"
+    });
+    if !editor.exists() {
+        // Editor not installed — fall through so the user still sees
+        // a helpful message rather than a "not found" spawn error.
+        eprintln!(
+            "glassline: editor binary not found at {}\nInstall it with `cargo install --path crates/glassline-tui` or download from the release page.",
+            editor.display()
+        );
+        return run_render(&[]);
+    }
+    let status = Command::new(&editor).status();
+    match status {
+        Ok(s) => s
+            .code()
+            .and_then(|c| u8::try_from(c).ok())
+            .map(ExitCode::from)
+            .unwrap_or(ExitCode::SUCCESS),
+        Err(e) => {
+            eprintln!("glassline: failed to spawn {}: {e}", editor.display());
+            ExitCode::FAILURE
         }
     }
 }
@@ -208,6 +264,16 @@ fn run_render(args: &[String]) -> ExitCode {
                 usage_data.error,
             ),
         );
+        // Populate BlockMetrics from the 5-hour bucket's reset stamp
+        // so `block-reset-timer` / `block-timer` widgets render. Only
+        // `resets_at` is needed for the timer countdown; `block_id`
+        // and `started_at` remain None until Claude Code ships them.
+        if let Some(resets_at) = usage_data.session_reset_at.clone() {
+            ctx.block_metrics = Some(BlockMetrics {
+                resets_at: Some(resets_at),
+                ..Default::default()
+            });
+        }
         ctx.usage_data = Some(usage_data);
     }
 
@@ -388,6 +454,8 @@ glassline {version} — Claude Code status line
 
 USAGE:
   <StatusJSON on stdin> | glassline [--config <path>]  Render a status line.
+  glassline                                            Bare TTY invocation opens the editor
+                                                       (`glassline-tui`) if it's installed.
   glassline install [OPTS]                             Wire into Claude Code.
   glassline uninstall [OPTS]                           Remove the wiring.
   glassline import [OPTS]                              Migrate from ccstatusline.

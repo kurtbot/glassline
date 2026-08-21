@@ -2,7 +2,6 @@
 //!
 //! Port of `src/widgets/CustomText.tsx` from ccstatusline, including
 //! the full placeholder grammar (Tier J of
-//! [[widget_parity_design_v1.1]] §4.10).
 //!
 //! # Recognised placeholders
 //!

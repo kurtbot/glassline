@@ -4,7 +4,7 @@
 //! `$XDG_CACHE_HOME/glassline/usage.json` (unix). TTLs are outcome-scoped:
 //! success 300s, generic error 30s, rate-limit 300s. Matches TS
 //! `CACHE_MAX_AGE` / `DEFAULT_RATE_LIMIT_BACKOFF` semantics — see
-//! [[usage_hardening_design_v1.2]] §4.1 (F1 tracks the 300→180s alignment).
+//! F1 tracks the 300→180s alignment.
 
 use std::{
     fs,
