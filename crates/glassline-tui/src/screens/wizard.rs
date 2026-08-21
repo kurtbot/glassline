@@ -6,14 +6,14 @@
 //!    dev / power-user). Live preview updates as you nav.
 //! 3. **Color level** — Basic16 / Ansi256 / Truecolor, seeded by the
 //!    `COLORTERM` / `TERM` env vars.
-//! 4. **Install prompt** — offer to wire glassline into
-//!    `~/.claude/settings.json` right now.
+//! 4. **CLI picker** — detects which coding CLIs are on the machine
+//!    (Claude Code, Codex, Grok…) and lets the user multi-select
+//!    which to wire glassline into. Single-detected-CLI machines
+//!    collapse to the current single-question layout.
 //!
 //! Each step `Replace`s itself with the next so `Esc` cleanly bails
 //! the whole wizard without a back-stack. On the last step, the
 //! wizard pops out to the `MainMenu` push that sits underneath it.
-
-use std::process::Command;
 
 use ratatui::{
     crossterm::event::{Event, KeyCode},
@@ -30,7 +30,6 @@ use glassline_core::{
 use glassline_tui_dsl::{Action, Panel, Preview, Screen, Ui};
 
 use crate::preview_ctx::canned_context;
-use crate::screens::info_modal::InfoModal;
 use crate::screens::main_menu::preview_height;
 
 /// Top-level entry — call from `main` when `LoadOutcome::FirstRun`
@@ -388,7 +387,7 @@ impl Screen for ColorLevelScreen {
                 let level = COLOR_LEVELS[self.focus].1;
                 Action::Sequence(vec![
                     Action::MutateSettings(Box::new(move |s| s.color_level = level)),
-                    Action::Replace(Box::new(InstallPromptScreen)),
+                    Action::Replace(Box::new(crate::screens::CliPickerScreen::new())),
                 ])
             }
             _ => Action::None,
@@ -412,92 +411,7 @@ impl From<()> for ColorLevelScreen {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Step 4 — Install prompt
-// ---------------------------------------------------------------------------
-
-struct InstallPromptScreen;
-
-impl Screen for InstallPromptScreen {
-    fn title(&self) -> &str {
-        "Install into Claude Code"
-    }
-    fn keybindings(&self) -> &[(&'static str, &'static str)] {
-        &[("y", "Install now"), ("n", "Skip"), ("Esc", "Skip")]
-    }
-    fn render(&mut self, ui: &mut Ui) {
-        let area = ui.area();
-        Panel::new("Install").render(area, ui.frame, |inner, frame| {
-            let lines = vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  Wire glassline into your Claude Code settings?",
-                    Style::default().add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                Line::from("  Runs `glassline install --user` which edits"),
-                Line::from("  ~/.claude/settings.json to set the statusLine command."),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  Press y to install, n to skip. You can always run",
-                    Style::default().add_modifier(Modifier::DIM),
-                )),
-                Line::from(Span::styled(
-                    "  `glassline install --user` later from a shell.",
-                    Style::default().add_modifier(Modifier::DIM),
-                )),
-            ];
-            frame.render_widget(Paragraph::new(lines), inner);
-        });
-    }
-    fn on_event(&mut self, ev: Event) -> Action {
-        let Event::Key(k) = ev else {
-            return Action::None;
-        };
-        match k.code {
-            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => Action::Pop,
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                let (title, body) = match run_install() {
-                    Ok(msg) => ("Install succeeded", msg),
-                    Err(msg) => ("Install failed", msg),
-                };
-                Action::Sequence(vec![
-                    Action::Pop,
-                    Action::Push(Box::new(InfoModal::new(title, body))),
-                ])
-            }
-            _ => Action::None,
-        }
-    }
-}
-
-fn run_install() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("resolve current_exe: {e}"))?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| "no parent dir for current_exe".to_string())?;
-    let render_bin = dir.join(if cfg!(windows) {
-        "glassline.exe"
-    } else {
-        "glassline"
-    });
-    if !render_bin.exists() {
-        return Err(format!(
-            "Can't find the render binary next to this editor:\n{}",
-            render_bin.display()
-        ));
-    }
-    let output = Command::new(&render_bin)
-        .args(["install", "--user"])
-        .output()
-        .map_err(|e| format!("spawn `{}`: {e}", render_bin.display()))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("`glassline install --user` failed:\n{stderr}"));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(format!(
-        "Ran `glassline install --user` — Claude Code will use glassline on next launch.\n\n{}",
-        stdout.trim(),
-    ))
-}
+// Step 4 (CLI picker) lives in `screens/cli_picker.rs` — replaced the
+// old single-question InstallPromptScreen so the wizard can detect
+// multiple coding CLIs and let the user pick which to wire glassline
+// into.
