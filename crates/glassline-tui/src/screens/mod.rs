@@ -1,6 +1,7 @@
 //! Editor screens.
 
 pub mod choice_modal;
+pub mod cli_picker;
 pub mod color_menu;
 pub mod confirm_modal;
 pub mod diagnostics;
@@ -20,6 +21,7 @@ pub mod widget_picker;
 pub mod wizard;
 
 pub use choice_modal::ChoiceModal;
+pub use cli_picker::CliPickerScreen;
 pub use color_menu::ColorMenu;
 pub use confirm_modal::ConfirmModal;
 pub use diagnostics::DiagnosticsScreen;
