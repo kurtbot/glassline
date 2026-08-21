@@ -72,7 +72,7 @@ impl Screen for ImportExportMenu {
             let mut all: Vec<Line> = lines;
             all.push(Line::from(""));
             all.push(Line::from(vec![Span::styled(
-                "Outcome shows as a toast in the bottom-right corner.",
+                "Outcome opens a modal — Enter to dismiss.",
                 Style::default().add_modifier(Modifier::DIM),
             )]));
             frame.render_widget(Paragraph::new(all), inner);
