@@ -28,6 +28,10 @@ class Glassline < Formula
 
   def install
     bin.install "glassline"
+    # Ship the interactive editor next to the render binary so the TTY
+    # shim (bare `glassline` in a terminal) can exec its sibling. The
+    # release archive includes both since v0.6.2.
+    bin.install "glassline-tui" if File.exist?("glassline-tui")
   end
 
   test do

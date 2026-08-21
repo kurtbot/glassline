@@ -197,7 +197,7 @@ impl Screen for TemplatePickScreen {
     }
 }
 
-fn template_minimal() -> Settings {
+pub fn template_minimal() -> Settings {
     Settings {
         lines: vec![vec![
             WidgetSpec::new("m1", "current-working-dir").with_color("blue"),
@@ -210,7 +210,7 @@ fn template_minimal() -> Settings {
     }
 }
 
-fn template_dev() -> Settings {
+pub fn template_dev() -> Settings {
     Settings {
         lines: vec![
             vec![
@@ -234,7 +234,7 @@ fn template_dev() -> Settings {
     }
 }
 
-fn template_power_user() -> Settings {
+pub fn template_power_user() -> Settings {
     Settings {
         lines: vec![
             vec![

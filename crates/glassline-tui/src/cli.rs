@@ -41,6 +41,7 @@ enum Action {
     DryRun,
     Import(PathBuf),
     Export(PathBuf),
+    EmitScreenshots(PathBuf),
     Version,
     Help,
 }
@@ -66,6 +67,7 @@ where
         Action::DryRun => run_dry_run(parsed.config.as_deref()),
         Action::Import(path) => run_import_flag(&path, parsed.config.as_deref()),
         Action::Export(path) => run_export_flag(&path, parsed.config.as_deref()),
+        Action::EmitScreenshots(dir) => run_emit_screenshots(&dir),
     }
 }
 
@@ -101,6 +103,12 @@ where
                     .next()
                     .ok_or_else(|| "--export requires a path".to_string())?;
                 out.action = Action::Export(PathBuf::from(v));
+            }
+            "--emit-screenshots" => {
+                let v = it
+                    .next()
+                    .ok_or_else(|| "--emit-screenshots requires a directory path".to_string())?;
+                out.action = Action::EmitScreenshots(PathBuf::from(v));
             }
             other => return Err(format!("unknown argument: {other:?} (try --help)")),
         }
@@ -185,6 +193,15 @@ fn run_export_flag(target: &Path, config: Option<&Path>) -> Result<(), String> {
         serde_json::to_vec_pretty(&loaded.settings).map_err(|e| format!("serialize: {e}"))?;
     std::fs::write(target, bytes).map_err(|e| format!("write {}: {e}", target.display()))?;
     println!("Exported {} -> {}", loaded.path.display(), target.display());
+    Ok(())
+}
+
+fn run_emit_screenshots(dir: &Path) -> Result<(), String> {
+    let written = crate::screenshots::generate_all(dir)?;
+    println!("Emitted {} SVG(s) to {}:", written.len(), dir.display());
+    for name in &written {
+        println!("  {name}");
+    }
     Ok(())
 }
 

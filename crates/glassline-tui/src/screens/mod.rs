@@ -36,4 +36,4 @@ pub use text_edit_modal::TextEditModal;
 pub use update_checker_menu::UpdateCheckerMenu;
 pub use widget_editor::WidgetEditor;
 pub use widget_picker::WidgetPicker;
-pub use wizard::wizard_entry;
+pub use wizard::{template_dev, template_minimal, template_power_user, wizard_entry};

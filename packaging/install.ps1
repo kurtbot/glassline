@@ -102,18 +102,34 @@ try {
     $extractDir = Join-Path $tmp 'extract'
     Expand-Archive -Path $archivePath -DestinationPath $extractDir -Force
 
-    $binary = Get-ChildItem -Path $extractDir -Filter 'glassline.exe' -Recurse -File | Select-Object -First 1
-    if ($null -eq $binary) {
-        Write-Error 'glassline.exe not found in archive'
-        exit 1
+    New-Item -ItemType Directory -Path $Dir -Force | Out-Null
+    Write-Host ''
+
+    # Install both the render binary and the editor. `glassline-tui.exe`
+    # became part of the archive in v0.6.2; older archives ship only the
+    # render binary, so a missing sibling is a warning, not fatal.
+    $installed = 0
+    foreach ($name in @('glassline.exe', 'glassline-tui.exe')) {
+        $found = Get-ChildItem -Path $extractDir -Filter $name -Recurse -File | Select-Object -First 1
+        if ($null -eq $found) {
+            if ($name -eq 'glassline.exe') {
+                Write-Error "$name not found in archive"
+                exit 1
+            } else {
+                Write-Warning "$name not in this archive (pre-v0.6.2). Interactive editor will not launch."
+                continue
+            }
+        }
+        $dest = Join-Path $Dir $name
+        Copy-Item -Path $found.FullName -Destination $dest -Force
+        Write-Host "installed: $dest"
+        $installed++
     }
 
-    New-Item -ItemType Directory -Path $Dir -Force | Out-Null
-    $target_path = Join-Path $Dir 'glassline.exe'
-    Copy-Item -Path $binary.FullName -Destination $target_path -Force
-
-    Write-Host ''
-    Write-Host "installed: $target_path"
+    if ($installed -eq 0) {
+        Write-Error 'no binaries installed'
+        exit 1
+    }
 
     $pathElements = $env:PATH -split ';'
     if ($pathElements -notcontains $Dir) {
