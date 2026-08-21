@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] — 2026-08-21
+
+Bugfix for install packaging and the baked-in default layout.
+
+### Fixed
+
+- **Interactive editor ships in the release archive.** The v0.6.0
+  release archive only contained the render binary (`glassline`), so
+  the TTY shim (bare `glassline` in a terminal → exec sibling
+  `glassline-tui`) had no sibling to exec. Release workflow now packages
+  both binaries (`bin: glassline glassline-tui`); `install.sh` /
+  `install.ps1` extract and install both; the Homebrew formula installs
+  both.
+- **Default layout no longer emits blank rows.** `Settings::default()`
+  used to return three lines — the first populated with widgets, the
+  next two empty — because the render pipeline emits one row per line
+  regardless of population, that showed up in terminals as one status
+  row followed by two blank rows. `default_lines()` now returns exactly
+  one populated line (model / context-% / branch / changes). Users add
+  lines through the editor.
+
+### Changed
+
+- Release archives are now named `glassline-<target>.<ext>` (previously
+  `$bin-$target`, which produced the same names in practice — no
+  breaking change for installers).
+
 ## [0.6.0] — 2026-08-21
 
 Two big beats in one release: an interactive layout editor (`glassline-tui`) and
@@ -106,6 +133,7 @@ Prior release. See `git log v0.5.0..v0.5.1` for details.
 
 Initial tagged release.
 
+[0.6.2]: https://github.com/kurtbot/glassline/releases/tag/v0.6.2
 [0.6.0]: https://github.com/kurtbot/glassline/releases/tag/v0.6.0
 [0.5.1]: https://github.com/kurtbot/glassline/releases/tag/v0.5.1
 [0.5.0]: https://github.com/kurtbot/glassline/releases/tag/v0.5.0

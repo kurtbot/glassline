@@ -90,20 +90,23 @@ impl Settings {
     }
 }
 
+/// Baked-in fallback layout when no `settings.json` exists yet.
+///
+/// One populated line — model, context, branch, changes. Empty trailing
+/// lines are omitted: the render pipeline emits one row per line
+/// regardless of population, so ghost lines would print as blank rows in
+/// the terminal. Users add lines via the editor; the empty vector here
+/// keeps the default footprint honest.
 fn default_lines() -> Vec<Vec<WidgetSpec>> {
-    vec![
-        vec![
-            WidgetSpec::new("1", "model").with_color("cyan"),
-            WidgetSpec::new("2", "separator"),
-            WidgetSpec::new("3", "context-length").with_color("brightBlack"),
-            WidgetSpec::new("4", "separator"),
-            WidgetSpec::new("5", "git-branch").with_color("magenta"),
-            WidgetSpec::new("6", "separator"),
-            WidgetSpec::new("7", "git-changes").with_color("yellow"),
-        ],
-        vec![],
-        vec![],
-    ]
+    vec![vec![
+        WidgetSpec::new("1", "model").with_color("cyan"),
+        WidgetSpec::new("2", "separator"),
+        WidgetSpec::new("3", "context-percentage").with_color("yellow"),
+        WidgetSpec::new("4", "separator"),
+        WidgetSpec::new("5", "git-branch").with_color("magenta"),
+        WidgetSpec::new("6", "separator"),
+        WidgetSpec::new("7", "git-changes").with_color("brightGreen"),
+    ]]
 }
 
 /// A single widget entry in a line.
