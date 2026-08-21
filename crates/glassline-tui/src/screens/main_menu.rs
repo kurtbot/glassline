@@ -214,10 +214,7 @@ fn dispatch(action: MenuAction) -> Action {
         MenuAction::EditLines => Action::Push(Box::new(LineListEditor::default())),
         MenuAction::Save => Action::Save,
         MenuAction::Quit => Action::Quit { save: false },
-        MenuAction::Powerline => Action::Push(Box::new(Placeholder::new(
-            "Powerline",
-            "Separator glyphs + theme editor lands in P4.",
-        ))),
+        MenuAction::Powerline => Action::Push(Box::new(crate::screens::PowerlineSetup::default())),
         MenuAction::GlobalDefaults => Action::Push(Box::new(Placeholder::new(
             "Global Defaults",
             "Global default overrides land in P4.",
