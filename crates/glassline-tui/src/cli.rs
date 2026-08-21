@@ -109,8 +109,16 @@ where
 }
 
 fn run_tui(config: Option<&Path>) -> Result<(), String> {
-    let (settings, path) = resolve_settings(config);
-    let app = DslApp::new(Box::new(MainMenu::new()), settings, path);
+    let (settings, path, first_run) = resolve_settings_with_outcome(config);
+    let app = if first_run {
+        // Stack: [MainMenu, wizard_root]. Wizard Replace-chains between
+        // its steps; when the last step pops, the user lands on MainMenu.
+        let mut app = DslApp::new(Box::new(MainMenu::new()), settings, path);
+        app.push_screen(crate::screens::wizard_entry());
+        app
+    } else {
+        DslApp::new(Box::new(MainMenu::new()), settings, path)
+    };
     let outcome = app.run().map_err(|e| e.to_string())?;
     println!("Editor exited: {outcome:?}");
     Ok(())
@@ -180,12 +188,17 @@ fn run_export_flag(target: &Path, config: Option<&Path>) -> Result<(), String> {
     Ok(())
 }
 
-fn resolve_settings(config: Option<&Path>) -> (Settings, PathBuf) {
+fn resolve_settings_with_outcome(config: Option<&Path>) -> (Settings, PathBuf, bool) {
+    use glassline_render::config::LoadOutcome;
     match load(config) {
-        Ok(loaded) => (loaded.settings, loaded.path),
+        Ok(loaded) => {
+            let first_run = matches!(loaded.outcome, LoadOutcome::FirstRun);
+            (loaded.settings, loaded.path, first_run)
+        }
         Err(_) => (
             Settings::default(),
             PathBuf::from("./glassline-scratch.json"),
+            false,
         ),
     }
 }

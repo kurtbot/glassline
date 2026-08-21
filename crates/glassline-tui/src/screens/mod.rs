@@ -15,6 +15,7 @@ pub mod text_edit_modal;
 pub mod update_checker_menu;
 pub mod widget_editor;
 pub mod widget_picker;
+pub mod wizard;
 
 pub use choice_modal::ChoiceModal;
 pub use color_menu::ColorMenu;
@@ -31,3 +32,4 @@ pub use text_edit_modal::TextEditModal;
 pub use update_checker_menu::UpdateCheckerMenu;
 pub use widget_editor::WidgetEditor;
 pub use widget_picker::WidgetPicker;
+pub use wizard::wizard_entry;

@@ -274,6 +274,13 @@ impl DslApp {
         self.dirty = true;
     }
 
+    /// Push a screen onto the stack from outside the event loop.
+    /// Used by main to stack a first-run wizard on top of the root
+    /// menu before starting the loop.
+    pub fn push_screen(&mut self, screen: Box<dyn Screen>) {
+        self.screens.push(screen);
+    }
+
     /// Pull out the pending toast text, if any. Test entry point —
     /// production code lets `draw` auto-drop expired toasts.
     pub fn take_toast(&mut self) -> Option<String> {
