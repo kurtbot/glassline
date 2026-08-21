@@ -36,6 +36,13 @@ pub struct WidgetEditor {
     /// (which doesn't have access to `Ui.settings`) can dispatch to
     /// the right knob editor for the focused row.
     cached_rows: Vec<CachedRow>,
+    /// The widget's state at screen-entry time. Captured on the first
+    /// render (when `Ui.settings` becomes available) so `Esc` can
+    /// revert edits made while the editor was open.
+    entry_snapshot: Option<WidgetSpec>,
+    /// Whether the user has confirmed an in-progress revert flag via
+    /// pressing `r`. Reset every render.
+    dirty_ever: bool,
 }
 
 /// Enough info about a row for `on_event` dispatch. Doesn't hold the
@@ -58,6 +65,8 @@ impl WidgetEditor {
             focus: 0,
             last_row_count: 1,
             cached_rows: Vec::new(),
+            entry_snapshot: None,
+            dirty_ever: false,
         }
     }
 
@@ -118,7 +127,8 @@ impl Screen for WidgetEditor {
             ("↑/↓", "Focus"),
             ("Enter", "Edit"),
             ("Space", "Toggle bool"),
-            ("Esc", "Back"),
+            ("Esc", "Discard edits + back"),
+            ("Ctrl-S", "Keep edits + back"),
         ]
     }
     fn render(&mut self, ui: &mut Ui) {
@@ -130,6 +140,17 @@ impl Screen for WidgetEditor {
             self.last_row_count = 0;
             return;
         };
+        // Snapshot the on-entry state once, so Esc can revert.
+        if self.entry_snapshot.is_none() {
+            self.entry_snapshot = Some(spec.clone());
+        }
+        // Track whether any edit has landed since entry — used to
+        // decide whether Esc needs to fire a restore.
+        if let Some(snap) = self.entry_snapshot.as_ref()
+            && snap != &spec
+        {
+            self.dirty_ever = true;
+        }
 
         let rows = rows_for(&spec, meta);
         self.last_row_count = rows.len().max(1);
@@ -210,8 +231,15 @@ impl Screen for WidgetEditor {
         let Event::Key(k) = ev else {
             return Action::None;
         };
+        // Ctrl-S accepts edits and pops with no restore.
+        if k.code == KeyCode::Char('s')
+            && k.modifiers
+                .contains(ratatui::crossterm::event::KeyModifiers::CONTROL)
+        {
+            return Action::Pop;
+        }
         match k.code {
-            KeyCode::Esc | KeyCode::Char('q') => Action::Pop,
+            KeyCode::Esc | KeyCode::Char('q') => self.revert_and_pop(),
             KeyCode::Up => {
                 if self.focus > 0 {
                     self.focus -= 1;
@@ -232,6 +260,29 @@ impl Screen for WidgetEditor {
 }
 
 impl WidgetEditor {
+    /// If the user made any edits since entering this screen, restore
+    /// the on-entry snapshot before popping. Otherwise a plain pop.
+    fn revert_and_pop(&self) -> Action {
+        if !self.dirty_ever {
+            return Action::Pop;
+        }
+        let Some(snap) = self.entry_snapshot.clone() else {
+            return Action::Pop;
+        };
+        let line = self.line_index;
+        let widget = self.widget_index;
+        Action::Sequence(vec![
+            Action::Pop,
+            Action::MutateSettings(Box::new(move |s| {
+                if let Some(row) = s.lines.get_mut(line)
+                    && let Some(spec) = row.get_mut(widget)
+                {
+                    *spec = snap;
+                }
+            })),
+        ])
+    }
+
     fn activate_focused(&self) -> Action {
         let line = self.line_index;
         let widget = self.widget_index;
