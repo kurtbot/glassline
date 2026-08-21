@@ -115,28 +115,7 @@ impl ImportExportMenu {
             dry_run: true,
             ..ImportOpts::default()
         };
-        match run_import(&opts) {
-            Err(e) => Action::Toast(format!("Import failed: {e}")),
-            Ok(report) => {
-                let target_json = report.target_json.clone();
-                let summary = format!(
-                    "Imported from {} (v{} → v{}) — {} lines, {} built-ins, {} ext",
-                    report.source.display(),
-                    report.source_version,
-                    report.target_version,
-                    report.lines,
-                    report.widgets_builtin,
-                    report.widgets_external,
-                );
-                match serde_json::from_str::<Settings>(&target_json) {
-                    Ok(new_settings) => Action::Sequence(vec![
-                        Action::MutateSettings(Box::new(move |s| *s = new_settings)),
-                        Action::Toast(summary),
-                    ]),
-                    Err(e) => Action::Toast(format!("Parse migrated JSON failed: {e}")),
-                }
-            }
-        }
+        run_import_into_scratch(&opts)
     }
 
     fn push_import_from_file_prompt(&self) -> Action {
@@ -147,42 +126,30 @@ impl ImportExportMenu {
             500,
             |v| {
                 let Some(path_str) = v else {
-                    return Action::Toast("Import cancelled".into());
+                    return Action::Push(Box::new(InfoModal::new(
+                        "Import cancelled",
+                        "No path provided.",
+                    )));
                 };
                 let path = PathBuf::from(path_str.trim());
                 if path.as_os_str().is_empty() {
-                    return Action::Toast("Empty path — import cancelled".into());
+                    return Action::Push(Box::new(InfoModal::new(
+                        "Import cancelled",
+                        "Empty path.",
+                    )));
                 }
                 if !path.exists() {
-                    return Action::Toast(format!("Not found: {}", path.display()));
+                    return Action::Push(Box::new(InfoModal::new(
+                        "Import failed",
+                        format!("Not found:\n\n{}", path.display()),
+                    )));
                 }
                 let opts = ImportOpts {
-                    from: Some(path.clone()),
+                    from: Some(path),
                     dry_run: true,
                     ..ImportOpts::default()
                 };
-                match run_import(&opts) {
-                    Err(e) => Action::Toast(format!("Import failed: {e}")),
-                    Ok(report) => {
-                        let target_json = report.target_json.clone();
-                        let summary = format!(
-                            "Imported from {} (v{} → v{}) — {} lines, {} built-ins, {} ext",
-                            report.source.display(),
-                            report.source_version,
-                            report.target_version,
-                            report.lines,
-                            report.widgets_builtin,
-                            report.widgets_external,
-                        );
-                        match serde_json::from_str::<Settings>(&target_json) {
-                            Ok(new_settings) => Action::Sequence(vec![
-                                Action::MutateSettings(Box::new(move |s| *s = new_settings)),
-                                Action::Toast(summary),
-                            ]),
-                            Err(e) => Action::Toast(format!("Parse migrated JSON failed: {e}")),
-                        }
-                    }
-                }
+                run_import_into_scratch(&opts)
             },
         )))
     }
@@ -222,6 +189,40 @@ impl ImportExportMenu {
                 }))
             },
         )))
+    }
+}
+
+/// Shared post-migration path — used by both import entry points
+/// (auto-detect + browse). On success: replaces scratch with the
+/// migrated settings and pops up a blocking `InfoModal`. On failure:
+/// `InfoModal` with the error details, no scratch changes.
+fn run_import_into_scratch(opts: &ImportOpts) -> Action {
+    match run_import(opts) {
+        Err(e) => Action::Push(Box::new(InfoModal::new("Import failed", format!("{e}")))),
+        Ok(report) => {
+            let target_json = report.target_json.clone();
+            let summary = format!(
+                "Source: {}\nSource version: {}\nTarget version: {}\n\n\
+                 Lines: {}\nBuilt-in widgets: {}\nExternal widgets: {}\n\n\
+                 Loaded into scratch. Press `s` on the Main Menu to persist.",
+                report.source.display(),
+                report.source_version,
+                report.target_version,
+                report.lines,
+                report.widgets_builtin,
+                report.widgets_external,
+            );
+            match serde_json::from_str::<Settings>(&target_json) {
+                Ok(new_settings) => Action::Sequence(vec![
+                    Action::MutateSettings(Box::new(move |s| *s = new_settings)),
+                    Action::Push(Box::new(InfoModal::new("Import succeeded", summary))),
+                ]),
+                Err(e) => Action::Push(Box::new(InfoModal::new(
+                    "Import failed",
+                    format!("Parse migrated JSON failed:\n\n{e}"),
+                ))),
+            }
+        }
     }
 }
 
