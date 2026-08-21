@@ -77,6 +77,29 @@ impl WidgetCategory {
             Self::External => "External widgets",
         }
     }
+
+    /// A distinct ratatui palette color per category, chosen so
+    /// adjacent categories in the widget picker aren't easily confused.
+    /// Used to tint the widget kind in row lists (ItemsEditor,
+    /// WidgetPicker).
+    #[must_use]
+    pub fn tint(self) -> ratatui::style::Color {
+        use ratatui::style::Color;
+        match self {
+            Self::Model => Color::LightCyan,
+            Self::Context => Color::LightGreen,
+            Self::Tokens => Color::LightYellow,
+            Self::Timing => Color::LightMagenta,
+            Self::Git => Color::Magenta,
+            Self::Jj => Color::LightBlue,
+            Self::Session => Color::Cyan,
+            Self::Usage => Color::Yellow,
+            Self::Powerline => Color::DarkGray,
+            Self::Custom => Color::LightRed,
+            Self::System => Color::Blue,
+            Self::External => Color::White,
+        }
+    }
 }
 
 /// A single knob the editor should surface for a widget.

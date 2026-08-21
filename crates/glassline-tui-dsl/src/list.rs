@@ -129,10 +129,21 @@ impl<T> List<T> {
     where
         F: Fn(&T) -> String,
     {
+        self.render_with_style(area, frame, label, |_| Style::default());
+    }
+
+    /// Render the list with a per-item style function — used when
+    /// callers want each row tinted based on the item's data (e.g.
+    /// widget category color in a picker).
+    pub fn render_with_style<F, S>(&mut self, area: Rect, frame: &mut Frame, label: F, styler: S)
+    where
+        F: Fn(&T) -> String,
+        S: Fn(&T) -> Style,
+    {
         let visible: Vec<ListItem> = self
             .filtered(&label)
             .iter()
-            .map(|it| ListItem::new(label(it)))
+            .map(|it| ListItem::new(label(it)).style(styler(it)))
             .collect();
         // Clamp selection to the current subset length so a stale
         // index from before a filter change never panics.

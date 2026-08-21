@@ -9,7 +9,7 @@
 use ratatui::{
     crossterm::event::{Event, KeyCode},
     layout::{Constraint, Layout},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
@@ -70,6 +70,12 @@ fn picker_label(meta: &&'static WidgetMeta) -> String {
     format!("{}  {}  ({})", meta.category.label(), meta.label, meta.id)
 }
 
+/// Tint every row by its category color so users can scan the list.
+fn picker_style(meta: &&'static WidgetMeta) -> Style {
+    let _ = Color::White; // silence unused-import if picker_style is removed
+    Style::default().fg(meta.category.tint())
+}
+
 impl Screen for WidgetPicker {
     fn title(&self) -> &str {
         "Pick a widget"
@@ -104,7 +110,8 @@ impl Screen for WidgetPicker {
         self.list.set_filter(self.filter.value());
 
         Panel::new("Widgets").render(list_area, ui.frame, |inner, frame| {
-            self.list.render(inner, frame, picker_label);
+            self.list
+                .render_with_style(inner, frame, picker_label, picker_style);
         });
 
         // Hint row shows the description of the highlighted widget.

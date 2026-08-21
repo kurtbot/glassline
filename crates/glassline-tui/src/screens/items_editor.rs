@@ -169,20 +169,25 @@ impl Screen for ItemsEditor {
     }
 }
 
-/// Render one row: `> 3. git-branch  Git branch  #cyan`. Internal
-/// widget ids never surface here — they're implementation detail.
+/// Render one row: `> 3. git-branch  Git branch  #cyan`. Widget kind
+/// is tinted with its category color (see [`crate::meta::WidgetCategory::tint`])
+/// so lists scan by category without needing headers. Internal widget
+/// ids never surface here — they're implementation detail.
 fn row_line(index: usize, spec: &WidgetSpec, focused: bool) -> Line<'_> {
     let marker = if focused { "> " } else { "  " };
-    let style = if focused {
-        Style::default().add_modifier(Modifier::REVERSED)
-    } else {
+    let meta = METAS.get(spec.kind.as_str()).copied();
+    let category_tint = meta
+        .map(|m| m.category.tint())
+        .unwrap_or(ratatui::style::Color::White);
+    let kind_style = if focused {
         Style::default()
+            .fg(category_tint)
+            .add_modifier(Modifier::REVERSED | Modifier::BOLD)
+    } else {
+        Style::default().fg(category_tint)
     };
     let index_col = format!("{:>2}. ", index + 1);
-    let human = METAS
-        .get(spec.kind.as_str())
-        .map(|m| m.label)
-        .unwrap_or("(unknown)");
+    let human = meta.map(|m| m.label).unwrap_or("(unknown)");
     let color = spec
         .color
         .as_deref()
@@ -191,7 +196,7 @@ fn row_line(index: usize, spec: &WidgetSpec, focused: bool) -> Line<'_> {
     Line::from(vec![
         Span::raw(marker),
         Span::styled(index_col, Style::default().add_modifier(Modifier::DIM)),
-        Span::styled(spec.kind.clone(), style),
+        Span::styled(spec.kind.clone(), kind_style),
         Span::styled(
             format!("  {human}"),
             Style::default().add_modifier(Modifier::DIM),
