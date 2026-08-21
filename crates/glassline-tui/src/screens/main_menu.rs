@@ -232,10 +232,7 @@ fn dispatch(action: MenuAction) -> Action {
             "Install / Uninstall",
             "Claude Code wiring lands in P5.",
         ))),
-        MenuAction::Diagnostics => Action::Push(Box::new(Placeholder::new(
-            "Diagnostics",
-            "Config resolution + log tail land in P5.",
-        ))),
+        MenuAction::Diagnostics => Action::Push(Box::new(crate::screens::DiagnosticsScreen)),
     }
 }
 

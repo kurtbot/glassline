@@ -3,6 +3,7 @@
 pub mod choice_modal;
 pub mod color_menu;
 pub mod confirm_modal;
+pub mod diagnostics;
 pub mod import_export_menu;
 pub mod info_modal;
 pub mod items_editor;
@@ -20,6 +21,7 @@ pub mod wizard;
 pub use choice_modal::ChoiceModal;
 pub use color_menu::ColorMenu;
 pub use confirm_modal::ConfirmModal;
+pub use diagnostics::DiagnosticsScreen;
 pub use import_export_menu::ImportExportMenu;
 pub use info_modal::InfoModal;
 pub use items_editor::ItemsEditor;
