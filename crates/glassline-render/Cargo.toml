@@ -38,6 +38,7 @@ workspace = true
 glassline-core = { path = "../glassline-core" }
 glassline-widgets = { path = "../glassline-widgets" }
 fs2 = { workspace = true }
+phf = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
