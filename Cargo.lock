@@ -630,7 +630,7 @@ dependencies = [
 
 [[package]]
 name = "glassline-core"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "insta",
  "proptest",
@@ -641,7 +641,7 @@ dependencies = [
 
 [[package]]
 name = "glassline-render"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "assert_cmd",
  "fs2",
@@ -660,7 +660,7 @@ dependencies = [
 
 [[package]]
 name = "glassline-testkit"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "glassline-core",
  "insta",
@@ -671,7 +671,7 @@ dependencies = [
 
 [[package]]
 name = "glassline-tui"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "glassline-core",
  "glassline-render",
@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "glassline-tui-dsl"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "ansi-to-tui",
  "glassline-core",
@@ -701,7 +701,7 @@ dependencies = [
 
 [[package]]
 name = "glassline-widgets"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "glassline-core",
  "insta",
