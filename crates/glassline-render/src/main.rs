@@ -37,10 +37,11 @@ use glassline_core::{
     widget::WidgetRequirements,
 };
 use glassline_render::{
+    adapter::{REGISTRY as ADAPTER_REGISTRY, REGISTRY_ORDER as ADAPTER_ORDER},
     ansi::spans_to_string,
     config::{LoadOutcome, default_settings_path, load},
     import::{self, ImportOpts},
-    install::{InstallOpts, Scope, render_report, run_install, run_uninstall},
+    install::{InstallOpts, Scope, render_report},
     pipeline::{compute_requirements, render_to_string},
     render_cache,
     stdin_reader::slurp_stdin,
@@ -335,15 +336,23 @@ fn warning_banner(reason: &str) -> StyledSpan {
 }
 
 fn run_install_cmd(args: &[String]) -> ExitCode {
-    let opts = match parse_install_args(args) {
-        Ok(o) => o,
+    let (slug, opts) = match parse_install_args(args) {
+        Ok(pair) => pair,
         Err(e) => {
             let _ = writeln!(std::io::stderr(), "glassline install: {e}");
             print_install_help();
             return ExitCode::from(2);
         }
     };
-    match run_install(&opts) {
+    let Some(adapter) = ADAPTER_REGISTRY.get(slug.as_str()) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "glassline install: unknown CLI `{slug}`.\nKnown: {known}. See `glassline install --help`.",
+            known = ADAPTER_ORDER.join(", "),
+        );
+        return ExitCode::from(2);
+    };
+    match adapter.install(&opts) {
         Ok(report) => {
             print!("{}", render_report(&report, "install"));
             ExitCode::SUCCESS
@@ -356,15 +365,23 @@ fn run_install_cmd(args: &[String]) -> ExitCode {
 }
 
 fn run_uninstall_cmd(args: &[String]) -> ExitCode {
-    let opts = match parse_install_args(args) {
-        Ok(o) => o,
+    let (slug, opts) = match parse_install_args(args) {
+        Ok(pair) => pair,
         Err(e) => {
             let _ = writeln!(std::io::stderr(), "glassline uninstall: {e}");
             print_install_help();
             return ExitCode::from(2);
         }
     };
-    match run_uninstall(&opts) {
+    let Some(adapter) = ADAPTER_REGISTRY.get(slug.as_str()) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "glassline uninstall: unknown CLI `{slug}`.\nKnown: {known}. See `glassline install --help`.",
+            known = ADAPTER_ORDER.join(", "),
+        );
+        return ExitCode::from(2);
+    };
+    match adapter.uninstall(&opts) {
         Ok(report) => {
             print!("{}", render_report(&report, "uninstall"));
             ExitCode::SUCCESS
@@ -431,9 +448,18 @@ fn print_import_help() {
     );
 }
 
-fn parse_install_args(args: &[String]) -> Result<InstallOpts, String> {
+/// Parse `install` / `uninstall` argv into an adapter slug + `InstallOpts`.
+///
+/// The slug (from `--for <slug>`) defaults to `"claude"` for backcompat
+/// so `glassline install` (no flag) behaves identically to
+/// `glassline install --for claude`. Unknown slugs are validated at
+/// dispatch time (against `adapter::REGISTRY`), not here — this parser
+/// only enforces argv shape.
+fn parse_install_args(args: &[String]) -> Result<(String, InstallOpts), String> {
     let mut opts = InstallOpts::default();
-    for arg in args {
+    let mut slug = String::from("claude");
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
         match arg.as_str() {
             "--project" => opts.scope = Scope::Project,
             "--user" => opts.scope = Scope::User,
@@ -441,10 +467,16 @@ fn parse_install_args(args: &[String]) -> Result<InstallOpts, String> {
             "--use-path" => opts.absolute_path = false,
             "--dry-run" => opts.dry_run = true,
             "--force" | "-f" => opts.force = true,
+            "--for" => {
+                slug = it
+                    .next()
+                    .ok_or_else(|| "--for requires a CLI slug".to_string())?
+                    .clone();
+            }
             other => return Err(format!("unknown argument: {other}")),
         }
     }
-    Ok(opts)
+    Ok((slug, opts))
 }
 
 fn print_help() {
@@ -456,8 +488,8 @@ USAGE:
   <StatusJSON on stdin> | glassline [--config <path>]  Render a status line.
   glassline                                            Bare TTY invocation opens the editor
                                                        (`glassline-tui`) if it's installed.
-  glassline install [OPTS]                             Wire into Claude Code.
-  glassline uninstall [OPTS]                           Remove the wiring.
+  glassline install [--for <slug>] [OPTS]              Wire into a coding CLI (default: claude).
+  glassline uninstall [--for <slug>] [OPTS]            Remove the wiring.
   glassline import [OPTS]                              Migrate from ccstatusline.
   glassline demo <MODE> [OPTS]                         Preview animations live.
   glassline --version                                  Print version.
@@ -490,9 +522,10 @@ IMPORT OPTS:
 }
 
 fn print_install_help() {
+    let known = ADAPTER_ORDER.join(" | ");
     let _ = writeln!(
         std::io::stderr(),
-        "usage: glassline install|uninstall [--user|--project] [--absolute-path] [--dry-run] [--force]"
+        "usage: glassline install|uninstall [--for <{known}>] [--user|--project] [--absolute-path] [--dry-run] [--force]\n  --for <slug>   Target CLI to wire glassline into (default: claude). Known: {known}."
     );
 }
 
@@ -541,4 +574,50 @@ fn debug_log_path() -> Option<PathBuf> {
             .join("glassline")
             .join("debug.log"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_install_args_defaults_to_claude() {
+        let (slug, opts) = parse_install_args(&args(&[])).unwrap();
+        assert_eq!(slug, "claude");
+        assert_eq!(opts.scope, Scope::User);
+    }
+
+    #[test]
+    fn parse_install_args_captures_for_slug() {
+        let (slug, _) = parse_install_args(&args(&["--for", "codex"])).unwrap();
+        assert_eq!(slug, "codex");
+    }
+
+    #[test]
+    fn parse_install_args_for_without_value_errors() {
+        assert!(parse_install_args(&args(&["--for"])).is_err());
+    }
+
+    #[test]
+    fn parse_install_args_for_and_scope_compose() {
+        let (slug, opts) = parse_install_args(&args(&["--for", "codex", "--project"])).unwrap();
+        assert_eq!(slug, "codex");
+        assert_eq!(opts.scope, Scope::Project);
+    }
+
+    #[test]
+    fn parse_install_args_for_dry_run_compose() {
+        let (slug, opts) = parse_install_args(&args(&["--for", "claude", "--dry-run"])).unwrap();
+        assert_eq!(slug, "claude");
+        assert!(opts.dry_run);
+    }
+
+    #[test]
+    fn parse_install_args_unknown_flag_errors() {
+        assert!(parse_install_args(&args(&["--nope"])).is_err());
+    }
 }
