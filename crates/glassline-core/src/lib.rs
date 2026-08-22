@@ -22,6 +22,7 @@ pub mod render_context;
 pub mod settings;
 pub mod span;
 pub mod status_json;
+pub mod templates;
 pub mod widget;
 
 pub use color::{Color, ColorLevel};

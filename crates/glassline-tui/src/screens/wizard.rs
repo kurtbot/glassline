@@ -25,7 +25,11 @@ use ratatui::{
 
 use glassline_core::{
     color::ColorLevel,
-    settings::{FlexMode, Settings, WidgetSpec},
+    settings::Settings,
+    templates::{
+        dev as template_dev_impl, minimal as template_minimal_impl,
+        power_user as template_power_user_impl,
+    },
 };
 use glassline_tui_dsl::{Action, Panel, Preview, Screen, Ui};
 
@@ -196,81 +200,19 @@ impl Screen for TemplatePickScreen {
     }
 }
 
+// Template functions live in `glassline_core::templates` so `glassline
+// install` (in the render binary) can seed the same layouts the wizard
+// offers. Re-exported below for existing callers.
 pub fn template_minimal() -> Settings {
-    Settings {
-        lines: vec![vec![
-            WidgetSpec::new("m1", "current-working-dir").with_color("blue"),
-            WidgetSpec::new("m2", "separator"),
-            WidgetSpec::new("m3", "git-branch").with_color("magenta"),
-            WidgetSpec::new("m4", "separator"),
-            WidgetSpec::new("m5", "context-percentage").with_color("yellow"),
-        ]],
-        ..Settings::in_memory_defaults()
-    }
+    template_minimal_impl()
 }
 
 pub fn template_dev() -> Settings {
-    Settings {
-        lines: vec![
-            vec![
-                WidgetSpec::new("d1", "model").with_color("cyan"),
-                WidgetSpec::new("d2", "separator"),
-                WidgetSpec::new("d3", "git-branch").with_color("magenta"),
-                WidgetSpec::new("d4", "separator"),
-                WidgetSpec::new("d5", "git-changes").with_color("brightGreen"),
-            ],
-            vec![
-                WidgetSpec::new("d6", "context-percentage").with_color("yellow"),
-                WidgetSpec::new("d7", "separator"),
-                WidgetSpec::new("d8", "tokens-total").with_color("brightYellow"),
-                WidgetSpec::new("d9", "separator"),
-                WidgetSpec::new("d10", "total-speed").with_color("cyan"),
-                WidgetSpec::new("d11", "separator"),
-                WidgetSpec::new("d12", "compaction-counter").with_color("brightBlack"),
-            ],
-        ],
-        ..Settings::in_memory_defaults()
-    }
+    template_dev_impl()
 }
 
 pub fn template_power_user() -> Settings {
-    Settings {
-        lines: vec![
-            vec![
-                WidgetSpec::new("p1", "model").with_color("cyan"),
-                WidgetSpec::new("p2", "separator"),
-                WidgetSpec::new("p3", "context-bar").with_color("green"),
-                WidgetSpec::new("p4", "separator"),
-                WidgetSpec::new("p5", "git-branch").with_color("magenta"),
-                WidgetSpec::new("p6", "separator"),
-                WidgetSpec::new("p7", "git-changes").with_color("brightGreen"),
-                WidgetSpec::new("p8", "separator"),
-                WidgetSpec::new("p9", "current-working-dir").with_color("blue"),
-            ],
-            vec![
-                WidgetSpec::new("p10", "context-percentage").with_color("yellow"),
-                WidgetSpec::new("p11", "separator"),
-                WidgetSpec::new("p12", "session-clock").with_color("yellow"),
-                WidgetSpec::new("p13", "separator"),
-                WidgetSpec::new("p14", "weekly-reset-timer").with_color("brightBlue"),
-                WidgetSpec::new("p15", "separator"),
-                WidgetSpec::new("p16", "input-speed").with_color("cyan"),
-                WidgetSpec::new("p17", "separator"),
-                WidgetSpec::new("p18", "output-speed").with_color("cyan"),
-            ],
-            vec![
-                WidgetSpec::new("p19", "session-usage").with_color("brightGreen"),
-                WidgetSpec::new("p20", "separator"),
-                WidgetSpec::new("p21", "weekly-usage").with_color("brightCyan"),
-                WidgetSpec::new("p22", "separator"),
-                WidgetSpec::new("p23", "thinking-effort").with_color("magenta"),
-                WidgetSpec::new("p24", "separator"),
-                WidgetSpec::new("p25", "session-cost").with_color("brightYellow"),
-            ],
-        ],
-        flex_mode: FlexMode::FullMinus40,
-        ..Settings::in_memory_defaults()
-    }
+    template_power_user_impl()
 }
 
 // ---------------------------------------------------------------------------
