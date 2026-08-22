@@ -10,6 +10,7 @@
 //! max-width computation) lands over T-1.23–T-1.24.
 
 pub mod adapter;
+pub mod adapters;
 pub mod ansi;
 pub mod config;
 pub mod demo;
