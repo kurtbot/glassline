@@ -9,6 +9,7 @@
 //! Full renderer port (powerline, gradient, flex, separator advance,
 //! max-width computation) lands over T-1.23–T-1.24.
 
+pub mod adapter;
 pub mod ansi;
 pub mod config;
 pub mod demo;

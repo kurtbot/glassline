@@ -649,6 +649,7 @@ dependencies = [
  "glassline-testkit",
  "glassline-widgets",
  "insta",
+ "phf",
  "predicates",
  "serde",
  "serde_json",
