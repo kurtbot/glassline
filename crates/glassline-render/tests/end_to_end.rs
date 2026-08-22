@@ -91,6 +91,51 @@ fn malformed_json_prints_marker_and_succeeds() {
 }
 
 #[test]
+fn install_unknown_for_slug_exits_2_with_known_slugs_hint() {
+    let assert = Command::cargo_bin("glassline")
+        .expect("built glassline binary")
+        .args(["install", "--for", "bogus-cli", "--dry-run"])
+        .assert()
+        .failure();
+    let code = assert.get_output().status.code();
+    assert_eq!(code, Some(2), "expected exit 2 for unknown slug");
+    let stderr = String::from_utf8_lossy(&assert.get_output().stderr).into_owned();
+    assert!(
+        stderr.contains("unknown CLI"),
+        "expected 'unknown CLI' in stderr, got: {stderr:?}"
+    );
+    assert!(
+        stderr.contains("claude"),
+        "expected 'claude' listed as known slug in stderr, got: {stderr:?}"
+    );
+}
+
+#[test]
+fn install_for_claude_dry_run_matches_bare_install() {
+    // Backcompat invariant: `install --for claude` must behave
+    // identically to `install` (no --for). Same exit code, same
+    // dispatch through the ClaudeAdapter → run_install path.
+    let bare = Command::cargo_bin("glassline")
+        .expect("built glassline binary")
+        .args(["install", "--dry-run"])
+        .assert()
+        .success();
+    let bare_stdout = String::from_utf8_lossy(&bare.get_output().stdout).into_owned();
+
+    let explicit = Command::cargo_bin("glassline")
+        .expect("built glassline binary")
+        .args(["install", "--for", "claude", "--dry-run"])
+        .assert()
+        .success();
+    let explicit_stdout = String::from_utf8_lossy(&explicit.get_output().stdout).into_owned();
+
+    assert_eq!(
+        bare_stdout, explicit_stdout,
+        "install --for claude must be byte-identical to install (no --for)",
+    );
+}
+
+#[test]
 fn missing_session_id_still_renders_version_prefix() {
     let assert = Command::cargo_bin("glassline")
         .expect("built glassline binary")

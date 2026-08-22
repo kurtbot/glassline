@@ -436,20 +436,25 @@ fn run_install_user(scope: ScopeChoice) -> Result<String, String> {
             render_bin.display()
         ));
     }
+    // Contract-tighten from P1 (multi-cli-adapters): explicitly pass
+    // `--for claude` so this call routes through the REGISTRY dispatch
+    // path, not the implicit backcompat default. Behavior is
+    // byte-identical to bare `install --user` for now; the P3+ path
+    // just needs the flag exercised here so codex/grok can slot in.
     let output = Command::new(&render_bin)
-        .args(["install", scope.arg()])
+        .args(["install", "--for", "claude", scope.arg()])
         .output()
         .map_err(|e| format!("spawn `{}`: {e}", render_bin.display()))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!(
-            "`glassline install {}` failed:\n{stderr}",
+            "`glassline install --for claude {}` failed:\n{stderr}",
             scope.arg()
         ));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(format!(
-        "Ran `glassline install {}` — Claude Code will use glassline on next launch.\n\n{}",
+        "Ran `glassline install --for claude {}` — Claude Code will use glassline on next launch.\n\n{}",
         scope.arg(),
         stdout.trim(),
     ))
