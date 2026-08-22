@@ -111,6 +111,40 @@ fn install_unknown_for_slug_exits_2_with_known_slugs_hint() {
 }
 
 #[test]
+fn install_for_codex_dry_run_reports_plugin_json_path() {
+    // Run against an isolated CODEX_HOME so we don't touch the
+    // developer's actual ~/.codex. --dry-run guarantees no writes
+    // even if the isolation failed.
+    let temp = std::env::temp_dir().join(format!(
+        "glassline-e2e-codex-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    ));
+    let _ = std::fs::remove_dir_all(&temp);
+
+    let assert = Command::cargo_bin("glassline")
+        .expect("built glassline binary")
+        .args(["install", "--for", "codex", "--dry-run"])
+        .env("CODEX_HOME", &temp)
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(
+        stdout.contains("dry-run"),
+        "expected dry-run marker in stdout, got: {stdout:?}"
+    );
+    assert!(
+        stdout.contains("plugin.json") || stdout.contains("plugins"),
+        "expected plugin path or 'plugins' dir in dry-run output, got: {stdout:?}"
+    );
+    // Clean up in case anything did leak.
+    let _ = std::fs::remove_dir_all(&temp);
+}
+
+#[test]
 fn install_for_claude_dry_run_matches_bare_install() {
     // Backcompat invariant: `install --for claude` must behave
     // identically to `install` (no --for). Same exit code, same

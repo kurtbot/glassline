@@ -73,13 +73,14 @@ pub trait CliAdapter: Send + Sync {
 /// P1 ships with `claude` only. P3 adds `codex`; P4 adds `grok`.
 pub static REGISTRY: phf::Map<&'static str, &'static dyn CliAdapter> = phf_map! {
     "claude" => &ClaudeAdapter as &'static dyn CliAdapter,
+    "codex"  => &crate::adapters::codex::CodexAdapter as &'static dyn CliAdapter,
 };
 
 /// Stable iteration order for callers that need to enumerate every
 /// adapter (diagnostics screen, `--help` output). `phf::Map`'s own
 /// iteration order is technically deterministic but not source-order,
 /// so callers that care use this instead.
-pub const REGISTRY_ORDER: &[&str] = &["claude"];
+pub const REGISTRY_ORDER: &[&str] = &["claude", "codex"];
 
 /// Choose an adapter based on the caller's environment. Called by
 /// the render binary when stdin arrives without an explicit `--for`
@@ -175,5 +176,12 @@ mod tests {
         // CODEX_HOME / GROK_HOME branches. Until then, the fallback
         // is Claude and that's what P1 asserts.
         assert_eq!(env_var_dispatch().key(), "claude");
+    }
+
+    #[test]
+    fn registry_contains_codex_after_p3a() {
+        let adapter = REGISTRY.get("codex").expect("codex should be registered");
+        assert_eq!(adapter.key(), "codex");
+        assert_eq!(adapter.display_name(), "Codex");
     }
 }
