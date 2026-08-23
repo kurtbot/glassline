@@ -74,13 +74,14 @@ pub trait CliAdapter: Send + Sync {
 pub static REGISTRY: phf::Map<&'static str, &'static dyn CliAdapter> = phf_map! {
     "claude" => &ClaudeAdapter as &'static dyn CliAdapter,
     "codex"  => &crate::adapters::codex::CodexAdapter as &'static dyn CliAdapter,
+    "grok"   => &crate::adapters::grok::GrokAdapter as &'static dyn CliAdapter,
 };
 
 /// Stable iteration order for callers that need to enumerate every
 /// adapter (diagnostics screen, `--help` output). `phf::Map`'s own
 /// iteration order is technically deterministic but not source-order,
 /// so callers that care use this instead.
-pub const REGISTRY_ORDER: &[&str] = &["claude", "codex"];
+pub const REGISTRY_ORDER: &[&str] = &["claude", "codex", "grok"];
 
 /// Choose an adapter based on the caller's environment. Called by
 /// the render binary when stdin arrives without an explicit `--for`
@@ -183,5 +184,12 @@ mod tests {
         let adapter = REGISTRY.get("codex").expect("codex should be registered");
         assert_eq!(adapter.key(), "codex");
         assert_eq!(adapter.display_name(), "Codex");
+    }
+
+    #[test]
+    fn registry_contains_grok_after_p4a() {
+        let adapter = REGISTRY.get("grok").expect("grok should be registered");
+        assert_eq!(adapter.key(), "grok");
+        assert_eq!(adapter.display_name(), "Grok");
     }
 }
