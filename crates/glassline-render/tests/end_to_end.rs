@@ -125,7 +125,10 @@ fn codex_home_env_routes_to_codex_adapter_which_stubs_render() {
     // a claude-err (which would mean env_var_dispatch didn't route).
     let assert = Command::cargo_bin("glassline")
         .expect("built glassline binary")
-        .env("CODEX_HOME", std::env::temp_dir().join("glassline-e2e-codex-dispatch"))
+        .env(
+            "CODEX_HOME",
+            std::env::temp_dir().join("glassline-e2e-codex-dispatch"),
+        )
         .env("GLASSLINE_CONFIG", "/no/such/glassline/config.json")
         .write_stdin("{}")
         .assert()
@@ -145,7 +148,10 @@ fn codex_home_env_routes_to_codex_adapter_which_stubs_render() {
 fn grok_home_env_routes_to_grok_adapter_which_stubs_render() {
     let assert = Command::cargo_bin("glassline")
         .expect("built glassline binary")
-        .env("GROK_HOME", std::env::temp_dir().join("glassline-e2e-grok-dispatch"))
+        .env(
+            "GROK_HOME",
+            std::env::temp_dir().join("glassline-e2e-grok-dispatch"),
+        )
         .env("GLASSLINE_CONFIG", "/no/such/glassline/config.json")
         .write_stdin("{}")
         .assert()
