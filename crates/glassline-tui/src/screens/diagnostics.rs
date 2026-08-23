@@ -22,6 +22,7 @@ use glassline_render::config::default_settings_path;
 use glassline_tui_dsl::{Action, Panel, Screen, Ui};
 use glassline_widgets::registry::{ALIASES, WIDGETS};
 
+use crate::cli_detect::{self, DetectResult};
 use crate::meta::METAS;
 
 const LOG_TAIL_LINES: usize = 50;
@@ -38,7 +39,7 @@ impl Screen for DiagnosticsScreen {
     fn render(&mut self, ui: &mut Ui) {
         let area = ui.area();
         let [summary_area, log_area] =
-            Layout::vertical([Constraint::Length(14), Constraint::Fill(1)]).areas(area);
+            Layout::vertical([Constraint::Length(18), Constraint::Fill(1)]).areas(area);
 
         Panel::new("Snapshot").render(summary_area, ui.frame, |inner, frame| {
             frame.render_widget(Paragraph::new(summary_lines()), inner);
@@ -132,6 +133,29 @@ fn summary_lines() -> Vec<Line<'static>> {
             format!("  {note}"),
             Style::default().add_modifier(Modifier::DIM),
         )]));
+    }
+
+    // Detected CLIs — snapshot at render time so a shell running
+    // `codex plugin enable` in parallel shows up next tick.
+    for (candidate, result) in cli_detect::snapshot() {
+        let (status, evidence) = match &result {
+            DetectResult::Installed { evidence } => (
+                "installed".to_string(),
+                Some(evidence.display().to_string()),
+            ),
+            DetectResult::NotInstalled => ("not detected".to_string(), None),
+            DetectResult::Unknown => ("(adapter pending)".to_string(), None),
+        };
+        out.push(kv(
+            &format!("Detected: {}", candidate.display_name),
+            &status,
+        ));
+        if let Some(path) = evidence {
+            out.push(Line::from(vec![Span::styled(
+                format!("  via {path}"),
+                Style::default().add_modifier(Modifier::DIM),
+            )]));
+        }
     }
 
     // Log path
