@@ -167,6 +167,44 @@ fn grok_home_env_routes_to_grok_adapter() {
 }
 
 #[test]
+fn install_print_caveats_prints_unsupported_widgets_for_codex() {
+    // The wizard's batched install path shells out `install --for
+    // <slug> --print-caveats` after each successful install to
+    // decorate its summary modal. This test asserts the output shape
+    // — one widget kind per line, exit 0.
+    let assert = Command::cargo_bin("glassline")
+        .expect("built glassline binary")
+        .args(["install", "--for", "codex", "--print-caveats"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    let widgets: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+    assert!(
+        widgets.contains(&"block-timer"),
+        "codex caveats include block-timer, got: {stdout:?}"
+    );
+    assert!(
+        widgets.contains(&"session-usage"),
+        "codex caveats include session-usage, got: {stdout:?}"
+    );
+}
+
+#[test]
+fn install_print_caveats_returns_empty_for_claude() {
+    let assert = Command::cargo_bin("glassline")
+        .expect("built glassline binary")
+        .args(["install", "--for", "claude", "--print-caveats"])
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    // Claude drives the full canonical catalog — no unsupported widgets.
+    assert!(
+        stdout.trim().is_empty(),
+        "claude has no caveats; expected empty stdout, got: {stdout:?}"
+    );
+}
+
+#[test]
 fn install_for_codex_dry_run_reports_plugin_json_path() {
     // Run against an isolated CODEX_HOME so we don't touch the
     // developer's actual ~/.codex. --dry-run guarantees no writes

@@ -352,6 +352,13 @@ fn warning_banner(reason: &str) -> StyledSpan {
 }
 
 fn run_install_cmd(args: &[String]) -> ExitCode {
+    // Short-circuit: `install --for <slug> --print-caveats` prints
+    // the adapter's `unsupported_widgets` list one-per-line and
+    // exits, bypassing the actual install. Consumed by the wizard's
+    // batched install path to decorate its summary modal.
+    if args.iter().any(|a| a == "--print-caveats") {
+        return run_print_caveats_cmd(args);
+    }
     let (slug, opts) = match parse_install_args(args) {
         Ok(pair) => pair,
         Err(e) => {
@@ -378,6 +385,32 @@ fn run_install_cmd(args: &[String]) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn run_print_caveats_cmd(args: &[String]) -> ExitCode {
+    // Minimal parser: only care about `--for <slug>`; ignore any other
+    // flag. Default slug is claude for backcompat.
+    let mut slug: &str = "claude";
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--for"
+            && let Some(v) = it.next()
+        {
+            slug = v.as_str();
+        }
+    }
+    let Some(adapter) = ADAPTER_REGISTRY.get(slug) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "glassline install --print-caveats: unknown CLI `{slug}`. Known: {known}.",
+            known = ADAPTER_ORDER.join(", "),
+        );
+        return ExitCode::from(2);
+    };
+    for widget_kind in adapter.unsupported_widgets() {
+        println!("{widget_kind}");
+    }
+    ExitCode::SUCCESS
 }
 
 fn run_uninstall_cmd(args: &[String]) -> ExitCode {
