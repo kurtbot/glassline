@@ -4,6 +4,86 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-08-22
+
+Multi-CLI support — glassline now installs into and renders for Codex
+and Grok in addition to Claude Code. Same widget catalog, same
+interactive editor, one binary, per-CLI adapter dispatch chosen by
+env-var or `--for <slug>` argument.
+
+### Added
+
+- **`CliAdapter` framework** — new trait in `glassline-render` with a
+  compile-time `phf::Map` REGISTRY. Every adapter owns its own
+  `install` / `uninstall` / `read_context` / `unsupported_widgets`
+  surface. `env_var_dispatch()` picks the right adapter from
+  `CODEX_HOME` / `GROK_HOME` / falls back to Claude for piped stdin.
+- **`glassline install --for <slug>`** — flag on `install` / `uninstall`
+  dispatches through the REGISTRY. Default slug is `claude` for
+  backcompat (`glassline install` unchanged). Unknown slug exits 2
+  with a known-slugs hint.
+- **Codex adapter** (issue #15) — writes
+  `~/.codex/plugins/glassline/{plugin.json, hooks.json}`. Renders from
+  `$CODEX_HOME/sessions/*.jsonl` rollout files (tolerant JSONL parser
+  that skips malformed lines). Forward-compat with
+  [openai/codex#16921](https://github.com/openai/codex/issues/16921):
+  non-empty stdin is parsed as Codex's proposed `statusLine` payload.
+  Unsupported widgets: `block-timer`, `block-reset-timer`,
+  `session-usage`.
+- **Grok adapter** (issue #16) — writes
+  `~/.grok/plugins/glassline/plugin.json` with three slash commands
+  (`/glassline:status`, `/glassline:watch`, `/glassline:configure`).
+  Post-install hint prints `Run: grok plugin enable glassline`.
+  Renders from `~/.grok/signals.json` (mandatory) + `updates.jsonl`
+  (optional, for active-tool). Permissive parser tries multiple
+  field-name variants (nested / flat, snake_case / camelCase). No
+  `signals.json` = clear "no signals.json at ..." error, not a
+  silent blank. Unsupported widgets: `block-*`, `session-clock`,
+  `weekly-*`.
+- **Wizard batches install through REGISTRY** — CliPickerScreen's
+  Enter path iterates every selected key, shells out
+  `install --for <key>` per CLI, follows each success with
+  `install --for <key> --print-caveats` to collect the adapter's
+  `unsupported_widgets`, then pushes one unified summary modal with
+  per-CLI `[ok]` / `[fail]` lines and caveat decoration. Title
+  toggles between "succeeded" / "failed" / "partially succeeded"
+  based on ok/total ratio.
+- **`install --for <slug> --print-caveats`** — subcommand action
+  that prints the adapter's `unsupported_widgets` list one-per-line
+  and exits. Used by the wizard's batched dispatch; also handy for
+  scripted probes.
+- **CLI detection registry** — `crates/glassline-tui/src/cli_detect.rs`
+  probes for installed CLIs via marker-dir + `which::which(binary)`.
+  Snapshot is deterministic-ordered and cheap enough to run at
+  wizard-open + diagnostics-render.
+- **Diagnostics screen — "Detected CLIs" section** — shows per-CLI
+  detection result + evidence path so users can debug why a CLI
+  isn't offered in the picker without opening code.
+
+### Changed
+
+- **`install --user` output shape** — new `[<slug>-err] <error>`
+  marker replaces the pre-refactor `[parse-err]` shape.
+  Per-adapter slug makes downstream failures distinguishable.
+  Behavior for piped stdin without `CODEX_HOME` / `GROK_HOME` is
+  byte-identical to pre-refactor.
+- **`InstallReport`** grows two Optional fields:
+  `seeded_config` (fresh config write path — shipped in v0.6.2)
+  and `post_install_hint` (new, populated by Grok's install with
+  the `grok plugin enable` reminder).
+- **`glassline install --help`** documents the `--for <slug>` flag
+  and lists known slugs.
+- **Wizard's install step** — old "wire glassline into Claude Code?"
+  single-question layout is preserved for single-CLI machines (via
+  the collapsed layout rule); multi-detected-CLI machines see a
+  multi-select picker.
+
+### Fixed
+
+- Windows PowerShell 5.1 UTF-8 handling in the packaging install
+  scripts. Non-ASCII characters (em-dashes, arrows) tripped the
+  Windows-1252 fallback parser; scripts are now 7-bit ASCII.
+
 ## [0.6.2] — 2026-08-21
 
 Bugfix for install packaging and the baked-in default layout.
@@ -133,6 +213,7 @@ Prior release. See `git log v0.5.0..v0.5.1` for details.
 
 Initial tagged release.
 
+[0.7.0]: https://github.com/kurtbot/glassline/releases/tag/v0.7.0
 [0.6.2]: https://github.com/kurtbot/glassline/releases/tag/v0.6.2
 [0.6.0]: https://github.com/kurtbot/glassline/releases/tag/v0.6.0
 [0.5.1]: https://github.com/kurtbot/glassline/releases/tag/v0.5.1
