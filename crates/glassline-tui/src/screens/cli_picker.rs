@@ -176,52 +176,143 @@ impl CliPickerScreen {
 
     /// Enter semantics: run install for every selected CLI, push a
     /// summary modal. Zero-selection is a toast + no-op (design §4.2).
+    ///
+    /// P5: iterates the full selected-keys list, shells out
+    /// `glassline install --for <key> --<scope>` per CLI, follows
+    /// each success with a `--print-caveats` probe so the summary
+    /// modal decorates every CLI with its `unsupported_widgets` list.
+    /// Single unified modal even when three CLIs are installed.
     fn handle_enter(&self) -> Action {
         let keys = self.selected_keys();
         if keys.is_empty() {
             return Action::Toast("no CLIs selected — install skipped".into());
         }
-        // P2: only Claude is meaningfully installable via the
-        // existing single-CLI subcommand. If the selection is
-        // exactly ["claude"], shell out; otherwise report the
-        // unsupported keys.
-        //
-        // P3 replaces this branch with `Action::InstallForCli`.
-        if keys == ["claude"] {
-            let (title, body) = match run_install_user(self.scope) {
-                Ok(msg) => ("Install succeeded", msg),
-                Err(msg) => ("Install failed", msg),
+        let mut outcomes: Vec<InstallOutcome> = Vec::with_capacity(keys.len());
+        for key in &keys {
+            let install = run_install_for(key, self.scope);
+            let caveats = if install.is_ok() {
+                run_print_caveats(key).unwrap_or_default()
+            } else {
+                Vec::new()
             };
-            return Action::Sequence(vec![
-                Action::Pop,
-                Action::Push(Box::new(InfoModal::new(title, body))),
-            ]);
+            outcomes.push(InstallOutcome {
+                key: (*key).to_string(),
+                install,
+                caveats,
+            });
         }
-        // Selection includes non-Claude CLIs but the render binary
-        // doesn't ship `install --for <cli>` yet. Explain rather
-        // than pretend.
-        let extras: Vec<&str> = keys.iter().copied().filter(|k| *k != "claude").collect();
-        let body = format!(
-            "Selected: {}\n\nOnly Claude Code can be wired up in this build.\n\nAdapter support for {} is tracked in issues #14 / #15 / #16.\n\nProceeding to install into Claude Code only.",
-            keys.join(", "),
-            extras.join(", "),
-        );
-        let install_summary = if keys.contains(&"claude") {
-            match run_install_user(self.scope) {
-                Ok(msg) => format!("\n\n---\n\n{msg}"),
-                Err(msg) => format!("\n\n---\n\nInstall failed:\n{msg}"),
-            }
-        } else {
-            "\n\nClaude not selected — nothing to install right now.".into()
-        };
+        let (title, body) = summarize_outcomes(&outcomes);
         Action::Sequence(vec![
             Action::Pop,
-            Action::Push(Box::new(InfoModal::new(
-                "Adapter support pending",
-                format!("{body}{install_summary}"),
-            ))),
+            Action::Push(Box::new(InfoModal::new(title, body))),
         ])
     }
+}
+
+/// Per-CLI outcome collected while iterating the selected keys.
+struct InstallOutcome {
+    key: String,
+    install: Result<String, String>,
+    /// Widget kinds this CLI will render as `(unavailable)`. Empty when
+    /// the caveats probe was skipped (install failed) or returned
+    /// no caveats.
+    caveats: Vec<String>,
+}
+
+fn summarize_outcomes(outcomes: &[InstallOutcome]) -> (&'static str, String) {
+    let successes = outcomes.iter().filter(|o| o.install.is_ok()).count();
+    let total = outcomes.len();
+    let title = if successes == total {
+        "Install succeeded"
+    } else if successes == 0 {
+        "Install failed"
+    } else {
+        "Install partially succeeded"
+    };
+    let mut body = format!("Installed into {successes}/{total} CLIs:\n\n");
+    for outcome in outcomes {
+        match &outcome.install {
+            Ok(msg) => {
+                body.push_str(&format!("  [ok] {}\n", outcome.key));
+                // First line of the install stdout is the "install: OK"
+                // header; include it so users know where the write
+                // landed.
+                if let Some(first) = msg.lines().next() {
+                    body.push_str(&format!("       {first}\n"));
+                }
+                if !outcome.caveats.is_empty() {
+                    body.push_str(&format!(
+                        "       widgets rendered as (unavailable) on {}: {}\n",
+                        outcome.key,
+                        outcome.caveats.join(", "),
+                    ));
+                }
+            }
+            Err(msg) => {
+                body.push_str(&format!("  [fail] {}\n", outcome.key));
+                // Truncate long error messages so the modal stays legible.
+                let short = msg.lines().next().unwrap_or(msg);
+                body.push_str(&format!("         {short}\n"));
+            }
+        }
+        body.push('\n');
+    }
+    (title, body)
+}
+
+fn run_install_for(key: &str, scope: ScopeChoice) -> Result<String, String> {
+    let render_bin = resolve_render_bin()?;
+    let output = Command::new(&render_bin)
+        .args(["install", "--for", key, scope.arg()])
+        .output()
+        .map_err(|e| format!("spawn `{}`: {e}", render_bin.display()))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+    if !output.status.success() {
+        return Err(format!(
+            "`glassline install --for {key} {}` failed:\n{}",
+            scope.arg(),
+            if stderr.is_empty() { stdout } else { stderr }
+        ));
+    }
+    Ok(stdout)
+}
+
+fn run_print_caveats(key: &str) -> Result<Vec<String>, String> {
+    let render_bin = resolve_render_bin()?;
+    let output = Command::new(&render_bin)
+        .args(["install", "--for", key, "--print-caveats"])
+        .output()
+        .map_err(|e| format!("spawn `{}`: {e}", render_bin.display()))?;
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
+}
+
+fn resolve_render_bin() -> Result<std::path::PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("resolve current_exe: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "no parent dir for current_exe".to_string())?;
+    let render_bin = dir.join(if cfg!(windows) {
+        "glassline.exe"
+    } else {
+        "glassline"
+    });
+    if !render_bin.exists() {
+        return Err(format!(
+            "Can't find the render binary next to this editor:\n{}",
+            render_bin.display()
+        ));
+    }
+    Ok(render_bin)
 }
 
 impl Screen for CliPickerScreen {
@@ -406,10 +497,26 @@ impl CliPickerScreen {
                 Action::Pop
             }
             KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                let (title, body) = match run_install_user(ScopeChoice::User) {
-                    Ok(msg) => ("Install succeeded", msg),
-                    Err(msg) => ("Install failed", msg),
+                // Collapsed layout runs a single install into the one
+                // detected CLI (usually Claude). Use the same batch
+                // path as the multi-select layout — a Vec of one key.
+                let key = self
+                    .snapshot
+                    .iter()
+                    .find_map(|(c, r)| matches!(r, DetectResult::Installed { .. }).then_some(c.key))
+                    .unwrap_or("claude");
+                let install = run_install_for(key, ScopeChoice::User);
+                let caveats = if install.is_ok() {
+                    run_print_caveats(key).unwrap_or_default()
+                } else {
+                    Vec::new()
                 };
+                let outcomes = [InstallOutcome {
+                    key: key.to_string(),
+                    install,
+                    caveats,
+                }];
+                let (title, body) = summarize_outcomes(&outcomes);
                 Action::Sequence(vec![
                     Action::Pop,
                     Action::Push(Box::new(InfoModal::new(title, body))),
@@ -418,46 +525,6 @@ impl CliPickerScreen {
             _ => Action::None,
         }
     }
-}
-
-fn run_install_user(scope: ScopeChoice) -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("resolve current_exe: {e}"))?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| "no parent dir for current_exe".to_string())?;
-    let render_bin = dir.join(if cfg!(windows) {
-        "glassline.exe"
-    } else {
-        "glassline"
-    });
-    if !render_bin.exists() {
-        return Err(format!(
-            "Can't find the render binary next to this editor:\n{}",
-            render_bin.display()
-        ));
-    }
-    // Contract-tighten from P1 (multi-cli-adapters): explicitly pass
-    // `--for claude` so this call routes through the REGISTRY dispatch
-    // path, not the implicit backcompat default. Behavior is
-    // byte-identical to bare `install --user` for now; the P3+ path
-    // just needs the flag exercised here so codex/grok can slot in.
-    let output = Command::new(&render_bin)
-        .args(["install", "--for", "claude", scope.arg()])
-        .output()
-        .map_err(|e| format!("spawn `{}`: {e}", render_bin.display()))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "`glassline install --for claude {}` failed:\n{stderr}",
-            scope.arg()
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(format!(
-        "Ran `glassline install --for claude {}` — Claude Code will use glassline on next launch.\n\n{}",
-        scope.arg(),
-        stdout.trim(),
-    ))
 }
 
 #[cfg(test)]
