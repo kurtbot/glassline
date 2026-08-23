@@ -1,38 +1,34 @@
-//! Codex CLI adapter (issue #15). Ships as a Codex plugin — writes
-//! `~/.codex/plugins/glassline/plugin.json` + `hooks.json` so Codex
-//! picks up glassline as an installed plugin.
+//! Grok CLI adapter (issue #16). Ships as a Grok plugin — writes
+//! `~/.grok/plugins/glassline/plugin.json` declaring slash commands
+//! that a user activates via `grok plugin enable glassline`.
 //!
-//! **Scope of P3a** (this file's initial landing):
-//!   * `install()` / `uninstall()` — write / remove the plugin
-//!     manifest. Fully implemented.
-//!   * `unsupported_widgets()` — Codex has no five-hour block quota
-//!     and its usage/session concepts differ, so those widgets render
-//!     as `(unavailable)` when the wizard summary is shown.
-//!   * `read_context()` — deferred to P3b. Rendering FROM a Codex
-//!     invocation (reading `$CODEX_HOME/sessions/*.jsonl` rollout
-//!     files, feature-detecting Codex's forward-compat `statusLine`
-//!     hook per openai/codex#16921) is a bigger refactor of
-//!     `main.rs`'s dispatch. Keeping this PR small enough to actually
-//!     review. P3b lands the render side + the `read_context` trait
-//!     method.
+//! Reference implementation for the "read `~/.grok/*.json` state and
+//! print a status line" pattern is xiyouMc/grok-hud. glassline follows
+//! the same shape: a plugin, three slash commands, an explicit
+//! activation step the user runs after install.
 //!
-//! **Manifest shape** — based on Codex's `plugin.json` schema (see
-//! `codex-rs/skills/src/assets/samples/plugin-creator/references/plugin-json-spec.md`).
-//! Minimal fields to be picked up: `name`, `version`, `description`,
-//! `hooks`. Interface metadata (displayName, category, screenshots)
-//! omitted — those are marketplace listing fields, not required for
-//! a locally-installed plugin.
+//! **Scope of P4a** (this file's initial landing):
+//!   * `install()` / `uninstall()` — write / remove the plugin manifest.
+//!     Fully implemented. `install` populates `post_install_hint` with
+//!     the `grok plugin enable glassline` command the user must run
+//!     next; `render_report` prints it under a `Next:` line.
+//!   * `unsupported_widgets()` — Grok exposes context + model + tools
+//!     via `~/.grok/signals.json`, but not the full Anthropic-shaped
+//!     block/weekly quota concepts, so those widgets render as
+//!     `(unavailable)` when the wizard summary is shown.
+//!   * `read_context()` — deferred to P4b (joint refactor with P3b
+//!     Codex render). Rendering FROM a Grok slash-command invocation
+//!     needs signals.json / updates.jsonl / active_sessions.json
+//!     parsers + main.rs dispatch refactor. See design v1.0 §4.4.
 //!
-//! **Hooks shape** — `hooks.json` declares a `PostToolUse` matcher
-//! that fires `glassline` after every tool call. On the render side
-//! (P3b), the CodexAdapter will read the latest rollout file and
-//! print a status line to stdout. In the meantime the hook is inert
-//! but declared, so a user running `codex plugin enable glassline`
-//! sees glassline in their plugin list.
+//! **Manifest shape** — Grok's plugin format (per superagent-ai/grok-cli
+//! docs) accepts `name` / `version` / `description` plus a
+//! `slashCommands` array where each entry declares a `name` and an
+//! executable `command`. Users invoke via `/<plugin>:<command>` in the
+//! Grok REPL.
 //!
-//! **Backing-store detection**: `$CODEX_HOME` env var wins; otherwise
-//! `$XDG_CONFIG_HOME/codex`; otherwise `~/.codex`. Matches Codex's own
-//! resolution per `codex-rs/exec/src/cli.rs`.
+//! **Backing-store detection**: `$GROK_HOME` env var wins; otherwise
+//! `~/.grok`. Matches grok-hud's resolution.
 
 use std::{
     fs,
@@ -43,28 +39,25 @@ use std::{
 use crate::adapter::CliAdapter;
 use crate::install::{InstallError, InstallOpts, InstallReport, Scope};
 
-/// The Codex adapter. Zero-sized — behavior is entirely in the trait
-/// impl.
-pub struct CodexAdapter;
+/// The Grok adapter. Zero-sized — behavior lives in the trait impl.
+pub struct GrokAdapter;
 
-impl CliAdapter for CodexAdapter {
+impl CliAdapter for GrokAdapter {
     fn key(&self) -> &'static str {
-        "codex"
+        "grok"
     }
 
     fn display_name(&self) -> &'static str {
-        "Codex"
+        "Grok"
     }
 
     fn install(&self, opts: &InstallOpts) -> Result<InstallReport, InstallError> {
-        let codex_home = resolve_codex_home(opts.scope)?;
-        let plugin_dir = codex_home.join("plugins").join("glassline");
+        let grok_home = resolve_grok_home(opts.scope)?;
+        let plugin_dir = grok_home.join("plugins").join("glassline");
         let plugin_json_path = plugin_dir.join("plugin.json");
-        let hooks_json_path = plugin_dir.join("hooks.json");
 
         // Idempotency: if `plugin.json` already exists and points at
-        // us, skip (unless --force). Mirrors the Claude adapter's
-        // `is_glassline_entry` check.
+        // us, skip (unless --force). Mirrors CodexAdapter's shape.
         if plugin_json_path.exists() && !opts.force {
             let existing = fs::read_to_string(&plugin_json_path).map_err(|e| InstallError::Io {
                 path: plugin_json_path.clone(),
@@ -82,13 +75,12 @@ impl CliAdapter for CodexAdapter {
                     new: Some(existing_v),
                     wrote: false,
                     seeded_config: None,
-
-                    post_install_hint: None,
+                    // Even on the noop path we surface the enable
+                    // hint — the user may have installed the manifest
+                    // in a previous session but not yet run enable.
+                    post_install_hint: Some(activate_hint()),
                 });
             }
-            // Some other plugin named `plugin.json` under our dir? That
-            // shouldn't happen — the dir is namespaced by "glassline" —
-            // but treat it as a foreign entry to be safe.
             return Err(InstallError::AlreadyConfigured {
                 path: plugin_json_path,
                 existing: existing_v,
@@ -96,7 +88,6 @@ impl CliAdapter for CodexAdapter {
         }
 
         let plugin_manifest = build_plugin_manifest();
-        let hooks_manifest = build_hooks_manifest();
 
         if opts.dry_run {
             return Ok(InstallReport {
@@ -105,8 +96,7 @@ impl CliAdapter for CodexAdapter {
                 new: Some(plugin_manifest.clone()),
                 wrote: false,
                 seeded_config: None,
-
-                post_install_hint: None,
+                post_install_hint: Some(activate_hint()),
             });
         }
 
@@ -115,7 +105,6 @@ impl CliAdapter for CodexAdapter {
             source: e,
         })?;
         write_json_atomic(&plugin_json_path, &plugin_manifest)?;
-        write_json_atomic(&hooks_json_path, &hooks_manifest)?;
 
         Ok(InstallReport {
             path: plugin_json_path,
@@ -123,14 +112,13 @@ impl CliAdapter for CodexAdapter {
             new: Some(plugin_manifest),
             wrote: true,
             seeded_config: None,
-
-            post_install_hint: None,
+            post_install_hint: Some(activate_hint()),
         })
     }
 
     fn uninstall(&self, opts: &InstallOpts) -> Result<InstallReport, InstallError> {
-        let codex_home = resolve_codex_home(opts.scope)?;
-        let plugin_dir = codex_home.join("plugins").join("glassline");
+        let grok_home = resolve_grok_home(opts.scope)?;
+        let plugin_dir = grok_home.join("plugins").join("glassline");
         let plugin_json_path = plugin_dir.join("plugin.json");
 
         if !plugin_json_path.exists() {
@@ -140,7 +128,6 @@ impl CliAdapter for CodexAdapter {
                 new: None,
                 wrote: false,
                 seeded_config: None,
-
                 post_install_hint: None,
             });
         }
@@ -169,12 +156,10 @@ impl CliAdapter for CodexAdapter {
                 new: None,
                 wrote: false,
                 seeded_config: None,
-
                 post_install_hint: None,
             });
         }
 
-        // Remove the whole plugin dir (plugin.json + hooks.json).
         fs::remove_dir_all(&plugin_dir).map_err(|e| InstallError::Io {
             path: plugin_dir.clone(),
             source: e,
@@ -186,36 +171,33 @@ impl CliAdapter for CodexAdapter {
             new: None,
             wrote: true,
             seeded_config: None,
-
-            post_install_hint: None,
+            post_install_hint: Some(
+                "Run: grok plugin disable glassline (if it was enabled)".to_string(),
+            ),
         })
     }
 
     fn unsupported_widgets(&self) -> &'static [&'static str] {
-        // Codex has no five-hour block quota concept and its
-        // session/usage endpoints differ from Anthropic's. Widgets
-        // that key on those fields render as `(unavailable)` when
-        // dispatched through this adapter.
-        &["block-timer", "block-reset-timer", "session-usage"]
+        // Grok's signals.json exposes model + context + active tool
+        // but not the Anthropic-shaped block/weekly quota concepts.
+        &[
+            "block-timer",
+            "block-reset-timer",
+            "session-clock",
+            "weekly-usage",
+            "weekly-sonnet-usage",
+            "weekly-opus-usage",
+            "weekly-reset-timer",
+        ]
     }
 }
 
-/// Resolve `$CODEX_HOME` → `$XDG_CONFIG_HOME/codex` → `~/.codex`.
-/// The `--project` scope is not meaningful for Codex plugins today
-/// (Codex plugins live under user-home, not per-project) — we accept
-/// the flag and always resolve to the user-scoped location, matching
-/// Codex's own plugin model.
-fn resolve_codex_home(_scope: Scope) -> Result<PathBuf, InstallError> {
-    if let Some(env) = std::env::var_os("CODEX_HOME") {
+/// Resolve `$GROK_HOME` → `~/.grok`. Grok plugins are user-scoped in
+/// v1; `--project` is accepted but resolves to the user path (matches
+/// Grok's own plugin model).
+fn resolve_grok_home(_scope: Scope) -> Result<PathBuf, InstallError> {
+    if let Some(env) = std::env::var_os("GROK_HOME") {
         let dir = PathBuf::from(env);
-        fs::create_dir_all(&dir).map_err(|e| InstallError::Io {
-            path: dir.clone(),
-            source: e,
-        })?;
-        return Ok(dir);
-    }
-    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        let dir = PathBuf::from(xdg).join("codex");
         fs::create_dir_all(&dir).map_err(|e| InstallError::Io {
             path: dir.clone(),
             source: e,
@@ -225,7 +207,7 @@ fn resolve_codex_home(_scope: Scope) -> Result<PathBuf, InstallError> {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .ok_or(InstallError::NoHome)?;
-    let dir = PathBuf::from(home).join(".codex");
+    let dir = PathBuf::from(home).join(".grok");
     fs::create_dir_all(&dir).map_err(|e| InstallError::Io {
         path: dir.clone(),
         source: e,
@@ -234,42 +216,36 @@ fn resolve_codex_home(_scope: Scope) -> Result<PathBuf, InstallError> {
 }
 
 fn build_plugin_manifest() -> serde_json::Value {
+    // Slash commands mirror grok-hud's shape:
+    //   /glassline:status    — one-shot render of the current session
+    //   /glassline:watch     — hint to run the render on a timer
+    //   /glassline:configure — open the editor
+    //
+    // The `command` field points at `glassline` on PATH. On Windows
+    // Grok invokes plugins via cmd.exe / PowerShell so PATH resolution
+    // works either way. If a user later hits the render side and
+    // finds nothing rendering (P4b will fix this), they'll get the
+    // "no config yet" hint from the first-run placeholder.
     serde_json::json!({
         "name": "glassline",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Status line formatter for Codex — model, context, git, session, usage.",
-        "hooks": "./hooks.json",
-        "interface": {
-            "displayName": "glassline",
-            "shortDescription": "Rich status line for Codex sessions.",
-            "developerName": "kurtbot",
-            "category": "Productivity",
-        }
-    })
-}
-
-fn build_hooks_manifest() -> serde_json::Value {
-    // P3a: declare a PostToolUse hook targeting our binary. Once P3b
-    // ships and CodexAdapter::read_context can render from rollout
-    // files, this hook will produce a visible status line after every
-    // tool call. In the meantime the hook is registered but inert
-    // (glassline reads empty stdin, prints a placeholder).
-    //
-    // The Windows override runs the same binary via PowerShell to
-    // sidestep Codex's Windows execution semantics — matches the
-    // guarded-command shape in `hook_config.rs`.
-    serde_json::json!({
-        "PostToolUse": [
+        "description": "Status line formatter for Grok — model, context, git, session, usage.",
+        "slashCommands": [
             {
-                "matcher": "*",
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": "glassline",
-                        "commandWindows": "glassline.exe",
-                        "timeout": 5
-                    }
-                ]
+                "name": "status",
+                "description": "Render current session status.",
+                "command": "glassline"
+            },
+            {
+                "name": "watch",
+                "description": "Print watch-mode setup hint.",
+                "command": "glassline",
+                "args": ["--watch-hint"]
+            },
+            {
+                "name": "configure",
+                "description": "Open the interactive editor.",
+                "command": "glassline-tui"
             }
         ]
     })
@@ -280,6 +256,10 @@ fn is_glassline_plugin(value: &serde_json::Value) -> bool {
         .get("name")
         .and_then(|v| v.as_str())
         .is_some_and(|n| n.eq_ignore_ascii_case("glassline"))
+}
+
+fn activate_hint() -> String {
+    "Run: grok plugin enable glassline".to_string()
 }
 
 fn write_json_atomic(path: &Path, value: &serde_json::Value) -> Result<(), InstallError> {
@@ -321,21 +301,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Tempdir helper with CODEX_HOME override baked in — writes
-    /// happen against the temp path, not the real ~/.codex.
-    ///
-    /// Because tests run with `unsafe_code = deny` at the workspace
-    /// level, we can't set env vars from the test. Instead we exercise
-    /// the pure functions directly (build_plugin_manifest,
-    /// write_json_atomic, is_glassline_plugin) and skip the env-driven
-    /// resolve_codex_home path — that's covered indirectly by the
-    /// integration test in P3b when we can spawn the binary with an
-    /// env override.
     struct TempDir(PathBuf);
     impl TempDir {
         fn new(tag: &str) -> Self {
             let base = std::env::temp_dir().join(format!(
-                "glassline-codex-{}-{}-{}",
+                "glassline-grok-{}-{}-{}",
                 tag,
                 std::process::id(),
                 std::time::SystemTime::now()
@@ -358,8 +328,8 @@ mod tests {
     fn plugin_manifest_has_required_fields() {
         let m = build_plugin_manifest();
         assert_eq!(m.get("name").and_then(|v| v.as_str()), Some("glassline"));
-        assert!(m.get("version").is_some(), "manifest needs version");
-        assert!(m.get("hooks").is_some(), "manifest needs hooks reference");
+        assert!(m.get("version").is_some());
+        assert!(m.get("slashCommands").is_some());
     }
 
     #[test]
@@ -372,14 +342,29 @@ mod tests {
     }
 
     #[test]
-    fn hooks_manifest_declares_post_tool_use_targeting_glassline() {
-        let h = build_hooks_manifest();
-        let post = h.get("PostToolUse").and_then(|v| v.as_array()).unwrap();
-        assert_eq!(post.len(), 1);
-        let hook = &post[0].get("hooks").and_then(|v| v.as_array()).unwrap()[0];
+    fn slash_commands_include_status_watch_configure() {
+        let m = build_plugin_manifest();
+        let cmds = m.get("slashCommands").and_then(|v| v.as_array()).unwrap();
+        let names: Vec<&str> = cmds
+            .iter()
+            .filter_map(|c| c.get("name").and_then(|v| v.as_str()))
+            .collect();
+        assert!(names.contains(&"status"));
+        assert!(names.contains(&"watch"));
+        assert!(names.contains(&"configure"));
+    }
+
+    #[test]
+    fn configure_command_points_at_glassline_tui() {
+        let m = build_plugin_manifest();
+        let cmds = m.get("slashCommands").and_then(|v| v.as_array()).unwrap();
+        let configure = cmds
+            .iter()
+            .find(|c| c.get("name").and_then(|v| v.as_str()) == Some("configure"))
+            .unwrap();
         assert_eq!(
-            hook.get("command").and_then(|v| v.as_str()),
-            Some("glassline")
+            configure.get("command").and_then(|v| v.as_str()),
+            Some("glassline-tui")
         );
     }
 
@@ -408,15 +393,25 @@ mod tests {
 
     #[test]
     fn adapter_key_and_display() {
-        assert_eq!(CodexAdapter.key(), "codex");
-        assert_eq!(CodexAdapter.display_name(), "Codex");
+        assert_eq!(GrokAdapter.key(), "grok");
+        assert_eq!(GrokAdapter.display_name(), "Grok");
     }
 
     #[test]
-    fn adapter_unsupported_widgets_includes_block_widgets() {
-        let ws = CodexAdapter.unsupported_widgets();
+    fn adapter_unsupported_widgets_covers_weekly_and_block() {
+        let ws = GrokAdapter.unsupported_widgets();
         assert!(ws.contains(&"block-timer"));
-        assert!(ws.contains(&"block-reset-timer"));
-        assert!(ws.contains(&"session-usage"));
+        assert!(ws.contains(&"weekly-usage"));
+        assert!(ws.contains(&"session-clock"));
+        // Grok has model + context so those must NOT be excluded.
+        assert!(!ws.contains(&"model"));
+        assert!(!ws.contains(&"context-percentage"));
+    }
+
+    #[test]
+    fn activate_hint_mentions_grok_plugin_enable() {
+        let hint = activate_hint();
+        assert!(hint.contains("grok plugin enable"));
+        assert!(hint.contains("glassline"));
     }
 }

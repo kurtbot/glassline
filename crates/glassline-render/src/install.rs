@@ -74,6 +74,13 @@ pub struct InstallReport {
     /// Only ever populated by `run_install`. `install_at` (the pure
     /// tests entry) doesn't seed.
     pub seeded_config: Option<PathBuf>,
+    /// A follow-up shell command the user must run for the install
+    /// to activate. Populated by adapters whose target CLI requires
+    /// an explicit activation step — e.g. Grok's
+    /// `grok plugin enable glassline`. `None` for adapters that
+    /// self-wire (Claude Code, Codex — the plugin loader picks up
+    /// the manifest on next Codex launch without user action).
+    pub post_install_hint: Option<String>,
 }
 
 /// Public install entry point. Resolves the target `settings.json` from
@@ -195,6 +202,7 @@ pub fn install_at(path: &Path, opts: &InstallOpts) -> Result<InstallReport, Inst
                 new: previous,
                 wrote: false,
                 seeded_config: None,
+                post_install_hint: None,
             });
         }
         return Err(InstallError::AlreadyConfigured {
@@ -241,6 +249,8 @@ pub fn install_at(path: &Path, opts: &InstallOpts) -> Result<InstallReport, Inst
         new: Some(new_entry),
         wrote,
         seeded_config: None,
+
+        post_install_hint: None,
     })
 }
 
@@ -257,6 +267,8 @@ pub fn uninstall_at(path: &Path, opts: &InstallOpts) -> Result<InstallReport, In
             new: None,
             wrote: false,
             seeded_config: None,
+
+            post_install_hint: None,
         });
     };
 
@@ -284,6 +296,8 @@ pub fn uninstall_at(path: &Path, opts: &InstallOpts) -> Result<InstallReport, In
         new: None,
         wrote,
         seeded_config: None,
+
+        post_install_hint: None,
     })
 }
 
@@ -474,6 +488,9 @@ pub fn render_report(report: &InstallReport, action: &str) -> String {
             seeded.display()
         ));
     }
+    if let Some(hint) = &report.post_install_hint {
+        out.push_str(&format!("\n  Next: {hint}\n"));
+    }
     if let Some(secs) = extract_refresh_interval(report.new.as_ref())
         && secs >= REFRESH_INTERVAL_NAG_SECONDS
     {
@@ -510,6 +527,7 @@ mod tests {
             })),
             wrote: true,
             seeded_config: None,
+            post_install_hint: None,
         };
         let text = render_report(&report, "install");
         assert!(
@@ -530,6 +548,7 @@ mod tests {
             })),
             wrote: true,
             seeded_config: None,
+            post_install_hint: None,
         };
         let text = render_report(&report, "install");
         // The JSON dump includes "refreshInterval": 1 — match on the
@@ -551,6 +570,7 @@ mod tests {
             })),
             wrote: true,
             seeded_config: None,
+            post_install_hint: None,
         };
         let text = render_report(&report, "install");
         assert!(!text.contains("refreshInterval is"));
@@ -617,6 +637,7 @@ mod tests {
             new: Some(json!({"type": "command", "command": "glassline"})),
             wrote: true,
             seeded_config: Some(PathBuf::from("/fake/.config/glassline/settings.json")),
+            post_install_hint: None,
         };
         let text = render_report(&report, "install");
         assert!(
@@ -637,6 +658,7 @@ mod tests {
             new: Some(json!({"type": "command", "command": "glassline"})),
             wrote: true,
             seeded_config: None,
+            post_install_hint: None,
         };
         let text = render_report(&report, "install");
         assert!(

@@ -9,3 +9,4 @@
 //! binary's stdin based on which CLI's home env var is present).
 
 pub mod codex;
+pub mod grok;
