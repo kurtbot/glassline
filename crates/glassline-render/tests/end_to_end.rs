@@ -117,12 +117,11 @@ fn install_unknown_for_slug_exits_2_with_known_slugs_hint() {
 }
 
 #[test]
-fn codex_home_env_routes_to_codex_adapter_which_stubs_render() {
-    // With CODEX_HOME set, env_var_dispatch routes stdin through the
-    // Codex adapter. Its read_context currently returns the
-    // NOT_YET_IMPLEMENTED_MSG stub (P4b will replace with real
-    // rollout-file parsing). Assert we see the codex-err marker, not
-    // a claude-err (which would mean env_var_dispatch didn't route).
+fn codex_home_env_routes_to_codex_adapter() {
+    // With CODEX_HOME set, env_var_dispatch routes stdin through
+    // CodexAdapter. Malformed JSON hits its `parse_forward_compat_statusline`
+    // path and errors; the `codex-err]` marker proves the dispatch
+    // routed (would have been `claude-err]` if it fell back).
     let assert = Command::cargo_bin("glassline")
         .expect("built glassline binary")
         .env(
@@ -130,7 +129,7 @@ fn codex_home_env_routes_to_codex_adapter_which_stubs_render() {
             std::env::temp_dir().join("glassline-e2e-codex-dispatch"),
         )
         .env("GLASSLINE_CONFIG", "/no/such/glassline/config.json")
-        .write_stdin("{}")
+        .write_stdin("{malformed")
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
@@ -138,14 +137,14 @@ fn codex_home_env_routes_to_codex_adapter_which_stubs_render() {
         stdout.contains("codex-err]"),
         "expected codex-err marker (adapter routed), got: {stdout:?}"
     );
-    assert!(
-        stdout.contains("not yet shipped"),
-        "expected stub message, got: {stdout:?}"
-    );
 }
 
 #[test]
-fn grok_home_env_routes_to_grok_adapter_which_stubs_render() {
+fn grok_home_env_routes_to_grok_adapter() {
+    // With GROK_HOME set, env_var_dispatch routes stdin through
+    // GrokAdapter. Empty temp dir = no `signals.json`, so read_context
+    // errors with "no signals.json at ...". The `grok-err]` marker
+    // proves the dispatch routed.
     let assert = Command::cargo_bin("glassline")
         .expect("built glassline binary")
         .env(
@@ -153,13 +152,17 @@ fn grok_home_env_routes_to_grok_adapter_which_stubs_render() {
             std::env::temp_dir().join("glassline-e2e-grok-dispatch"),
         )
         .env("GLASSLINE_CONFIG", "/no/such/glassline/config.json")
-        .write_stdin("{}")
+        .write_stdin("{malformed")
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
     assert!(
         stdout.contains("grok-err]"),
         "expected grok-err marker (adapter routed), got: {stdout:?}"
+    );
+    assert!(
+        stdout.contains("no signals.json"),
+        "expected 'no signals.json' error, got: {stdout:?}"
     );
 }
 

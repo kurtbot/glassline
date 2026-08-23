@@ -36,6 +36,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use glassline_core::{
+    render_context::{RenderContext, TokenMetrics},
+    status_json::{ContextWindow, ModelInfo, StatusJson, Workspace},
+};
+
 use crate::adapter::CliAdapter;
 use crate::install::{InstallError, InstallOpts, InstallReport, Scope};
 
@@ -191,15 +196,32 @@ impl CliAdapter for GrokAdapter {
         ]
     }
 
-    fn read_context(
-        &self,
-        _stdin: &str,
-    ) -> Result<glassline_core::render_context::RenderContext, String> {
-        // P4b will parse ~/.grok/signals.json + updates.jsonl +
-        // active_sessions.json and build a RenderContext. Until then
-        // the adapter returns the stub message so users routed here
-        // via GROK_HOME see a concrete "not yet" instead of silence.
-        Err(crate::adapter::NOT_YET_IMPLEMENTED_MSG.to_string())
+    fn read_context(&self, _stdin: &str) -> Result<RenderContext, String> {
+        // Grok invokes plugins as slash commands with no piped stdin —
+        // we ignore stdin and read state from `~/.grok/*.json`.
+        // grok-hud reference: signals.json is the primary source for
+        // model + context; updates.jsonl gives the active tool.
+        //
+        // signals.json is the mandatory source. Missing it means Grok
+        // isn't in a state we can render from — error clearly rather
+        // than silently return empty context.
+        let grok_home =
+            resolve_grok_home_readonly().map_err(|e| format!("resolve GROK_HOME: {e}"))?;
+        let signals_path = grok_home.join("signals.json");
+        if !signals_path.exists() {
+            return Err(format!("no signals.json at {}", signals_path.display()));
+        }
+        let signals = parse_signals(&signals_path)
+            .map_err(|e| format!("parse {}: {e}", signals_path.display()))?;
+        // updates.jsonl gives us the active tool if present. It's
+        // optional — missing file is not fatal.
+        let updates_path = grok_home.join("updates.jsonl");
+        let active_tool = if updates_path.exists() {
+            latest_active_tool(&updates_path).unwrap_or(None)
+        } else {
+            None
+        };
+        Ok(signals_to_context(signals, active_tool))
     }
 }
 
@@ -305,6 +327,205 @@ fn write_json_atomic(path: &Path, value: &serde_json::Value) -> Result<(), Insta
         source: e,
     })?;
     Ok(())
+}
+
+// --- read_context helpers -------------------------------------------------
+
+/// Read-only sibling of `resolve_grok_home` — doesn't try to create
+/// the directory. Used by `read_context` where we want to look for
+/// existing signals files; refusing to run when the dir is missing
+/// is the right behavior.
+fn resolve_grok_home_readonly() -> Result<PathBuf, String> {
+    if let Some(env) = std::env::var_os("GROK_HOME") {
+        return Ok(PathBuf::from(env));
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .ok_or_else(|| "no HOME / USERPROFILE / GROK_HOME".to_string())?;
+    Ok(PathBuf::from(home).join(".grok"))
+}
+
+/// Fields we extract from `signals.json`. Permissive shape — Grok's
+/// exact schema isn't publicly documented, so we read whatever
+/// canonical names grok-hud uses and fall back to reasonable
+/// alternatives. Missing fields stay None.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct GrokSignals {
+    pub model_id: Option<String>,
+    pub model_display_name: Option<String>,
+    pub context_used_tokens: Option<u64>,
+    pub context_window_size: Option<u64>,
+    pub context_used_percentage: Option<f64>,
+    pub session_id: Option<String>,
+    pub cwd: Option<String>,
+}
+
+pub(crate) fn parse_signals(path: &Path) -> Result<GrokSignals, String> {
+    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    let value: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let mut out = GrokSignals::default();
+
+    // Model — try several field names Grok might use.
+    if let Some(m) = value.get("model") {
+        if let Some(id) = m.get("id").and_then(|v| v.as_str()) {
+            out.model_id = Some(id.to_string());
+        }
+        if let Some(name) = m.get("display_name").or_else(|| m.get("name"))
+            && let Some(s) = name.as_str()
+        {
+            out.model_display_name = Some(s.to_string());
+        }
+        if let Some(s) = m.as_str() {
+            out.model_id.get_or_insert(s.to_string());
+        }
+    }
+    if let Some(name) = value.get("modelName").and_then(|v| v.as_str()) {
+        out.model_display_name.get_or_insert(name.to_string());
+    }
+
+    // Context.
+    if let Some(ctx) = value.get("context").or_else(|| value.get("contextWindow")) {
+        if let Some(v) = ctx.get("used").and_then(u64_of) {
+            out.context_used_tokens = Some(v);
+        }
+        if let Some(v) = ctx
+            .get("size")
+            .or_else(|| ctx.get("window"))
+            .or_else(|| ctx.get("total"))
+            .and_then(u64_of)
+        {
+            out.context_window_size = Some(v);
+        }
+        if let Some(v) = ctx.get("percentage").and_then(|x| x.as_f64()) {
+            out.context_used_percentage = Some(v);
+        }
+    }
+    // Top-level fallbacks (some emitters write context_used_tokens
+    // directly on the root object).
+    if let Some(v) = value.get("contextUsedTokens").and_then(u64_of) {
+        out.context_used_tokens.get_or_insert(v);
+    }
+    if let Some(v) = value.get("contextWindowSize").and_then(u64_of) {
+        out.context_window_size.get_or_insert(v);
+    }
+
+    if let Some(s) = value.get("session_id").and_then(|v| v.as_str()) {
+        out.session_id = Some(s.to_string());
+    } else if let Some(s) = value.get("sessionId").and_then(|v| v.as_str()) {
+        out.session_id = Some(s.to_string());
+    }
+    if let Some(s) = value.get("cwd").and_then(|v| v.as_str()) {
+        out.cwd = Some(s.to_string());
+    }
+    Ok(out)
+}
+
+/// Tail of `updates.jsonl`. Each line is a tool-invocation event.
+/// Returns the `tool_name` of the most recent event, or None if the
+/// file is empty / malformed. Errors reading the file bubble up as
+/// `Err`; per-line JSON parse failures are silently skipped.
+pub(crate) fn latest_active_tool(path: &Path) -> Result<Option<String>, String> {
+    let raw = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    for line in raw.lines().rev() {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if let Some(name) = v.get("tool_name").and_then(|x| x.as_str()) {
+            return Ok(Some(name.to_string()));
+        }
+        if let Some(name) = v.get("toolName").and_then(|x| x.as_str()) {
+            return Ok(Some(name.to_string()));
+        }
+    }
+    Ok(None)
+}
+
+fn u64_of(v: &serde_json::Value) -> Option<u64> {
+    v.as_u64().or_else(|| v.as_f64().map(|f| f as u64))
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+pub(crate) fn signals_to_context(
+    signals: GrokSignals,
+    _active_tool: Option<String>,
+) -> RenderContext {
+    let context_window = if signals.context_used_tokens.is_some()
+        || signals.context_window_size.is_some()
+        || signals.context_used_percentage.is_some()
+    {
+        let pct = signals.context_used_percentage.or_else(|| {
+            match (signals.context_used_tokens, signals.context_window_size) {
+                (Some(used), Some(size)) if size > 0 => Some((used as f64 / size as f64) * 100.0),
+                _ => None,
+            }
+        });
+        Some(ContextWindow {
+            context_window_size: signals.context_window_size.map(|v| v as f64),
+            total_input_tokens: signals.context_used_tokens.map(|v| v as f64),
+            total_output_tokens: None,
+            current_usage: None,
+            used_percentage: pct,
+            remaining_percentage: pct.map(|p| 100.0 - p),
+            usable_percentage: None,
+        })
+    } else {
+        None
+    };
+
+    let model = if signals.model_id.is_some() || signals.model_display_name.is_some() {
+        Some(ModelInfo::Full {
+            id: signals.model_id,
+            display_name: signals.model_display_name,
+        })
+    } else {
+        None
+    };
+
+    let workspace = signals.cwd.clone().map(|cwd| Workspace {
+        current_dir: Some(cwd.clone()),
+        project_dir: Some(cwd),
+        repo: None,
+    });
+
+    let status_json = StatusJson {
+        session_id: signals.session_id,
+        session_name: None,
+        transcript_path: None,
+        cwd: signals.cwd,
+        model,
+        workspace,
+        version: None,
+        output_style: None,
+        effort: None,
+        cost: None,
+        context_window,
+        vim: None,
+        worktree: None,
+        rate_limits: None,
+        hook_event_name: None,
+        extras: std::collections::BTreeMap::new(),
+    };
+
+    let token_metrics = signals.context_used_tokens.map(|used| TokenMetrics {
+        input: used,
+        output: 0,
+        cache_read: 0,
+        cache_creation: 0,
+        context_length: used,
+    });
+
+    RenderContext {
+        data: Some(status_json),
+        token_metrics,
+        now_ms: now_ms(),
+        ..RenderContext::default()
+    }
 }
 
 #[cfg(test)]
@@ -424,5 +645,110 @@ mod tests {
         let hint = activate_hint();
         assert!(hint.contains("grok plugin enable"));
         assert!(hint.contains("glassline"));
+    }
+
+    // --- signals parser tests -----------------------------------------
+
+    #[test]
+    fn parse_signals_extracts_nested_model_and_context() {
+        let td = TempDir::new("signals-full");
+        let path = td.0.join("signals.json");
+        fs::write(
+            &path,
+            json!({
+                "model": {"id": "grok-4-fast", "display_name": "Grok 4 Fast"},
+                "context": {"used": 12000, "size": 128000},
+                "session_id": "sess_xyz",
+                "cwd": "/tmp/g"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let s = parse_signals(&path).unwrap();
+        assert_eq!(s.model_id.as_deref(), Some("grok-4-fast"));
+        assert_eq!(s.model_display_name.as_deref(), Some("Grok 4 Fast"));
+        assert_eq!(s.context_used_tokens, Some(12000));
+        assert_eq!(s.context_window_size, Some(128000));
+        assert_eq!(s.session_id.as_deref(), Some("sess_xyz"));
+        assert_eq!(s.cwd.as_deref(), Some("/tmp/g"));
+    }
+
+    #[test]
+    fn parse_signals_tolerates_top_level_context_fields() {
+        let td = TempDir::new("signals-flat");
+        let path = td.0.join("signals.json");
+        fs::write(
+            &path,
+            json!({
+                "modelName": "Grok Code",
+                "contextUsedTokens": 5000,
+                "contextWindowSize": 64000
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let s = parse_signals(&path).unwrap();
+        assert_eq!(s.model_display_name.as_deref(), Some("Grok Code"));
+        assert_eq!(s.context_used_tokens, Some(5000));
+        assert_eq!(s.context_window_size, Some(64000));
+    }
+
+    #[test]
+    fn parse_signals_handles_missing_optional_fields() {
+        let td = TempDir::new("signals-sparse");
+        let path = td.0.join("signals.json");
+        fs::write(&path, "{}").unwrap();
+        let s = parse_signals(&path).unwrap();
+        assert!(s.model_id.is_none());
+        assert!(s.context_used_tokens.is_none());
+    }
+
+    #[test]
+    fn latest_active_tool_returns_most_recent_event() {
+        let td = TempDir::new("updates");
+        let path = td.0.join("updates.jsonl");
+        let events = [
+            json!({"tool_name": "read"}).to_string(),
+            json!({"tool_name": "write"}).to_string(),
+            json!({"tool_name": "bash"}).to_string(),
+        ];
+        fs::write(&path, events.join("\n")).unwrap();
+        assert_eq!(latest_active_tool(&path).unwrap().as_deref(), Some("bash"));
+    }
+
+    #[test]
+    fn latest_active_tool_skips_malformed_lines_and_returns_none_if_all_bad() {
+        let td = TempDir::new("updates-bad");
+        let path = td.0.join("updates.jsonl");
+        fs::write(&path, "not-json\n\nalso-not-json").unwrap();
+        assert_eq!(latest_active_tool(&path).unwrap(), None);
+    }
+
+    #[test]
+    fn signals_to_context_computes_percentage_when_missing() {
+        let signals = GrokSignals {
+            model_id: Some("grok-4".to_string()),
+            context_used_tokens: Some(50_000),
+            context_window_size: Some(200_000),
+            context_used_percentage: None,
+            ..Default::default()
+        };
+        let ctx = signals_to_context(signals, None);
+        let status = ctx.data.expect("status");
+        let cw = status.context_window.expect("context_window");
+        // 50k / 200k = 25%
+        assert_eq!(cw.used_percentage, Some(25.0));
+        assert_eq!(cw.remaining_percentage, Some(75.0));
+    }
+
+    #[test]
+    fn signals_to_context_no_context_returns_none_context_window() {
+        let signals = GrokSignals {
+            model_id: Some("grok-4".to_string()),
+            ..Default::default()
+        };
+        let ctx = signals_to_context(signals, None);
+        let status = ctx.data.expect("status");
+        assert!(status.context_window.is_none());
     }
 }
