@@ -30,14 +30,13 @@ use std::{
 
 use glassline_core::{
     color::Color,
-    render_context::{BlockMetrics, RenderContext},
+    render_context::BlockMetrics,
     settings::{Settings, WidgetSpec},
     span::StyledSpan,
-    status_json::StatusJson,
     widget::WidgetRequirements,
 };
 use glassline_render::{
-    adapter::{REGISTRY as ADAPTER_REGISTRY, REGISTRY_ORDER as ADAPTER_ORDER},
+    adapter::{REGISTRY as ADAPTER_REGISTRY, REGISTRY_ORDER as ADAPTER_ORDER, env_var_dispatch},
     ansi::spans_to_string,
     config::{LoadOutcome, default_settings_path, load},
     import::{self, ImportOpts},
@@ -164,14 +163,29 @@ fn run_render(args: &[String]) -> ExitCode {
     }
     render_cache::record_stat(false, now_ms);
 
-    let payload: StatusJson = match serde_json::from_str(&raw) {
-        Ok(p) => p,
+    // Adapter dispatch. env_var_dispatch inspects CODEX_HOME /
+    // GROK_HOME and picks the right adapter; falls back to Claude for
+    // piped-stdin usage. Each adapter owns its own input-parsing
+    // surface — Claude parses StatusJSON, Codex/Grok (once P4b lands)
+    // read their state files.
+    let adapter = env_var_dispatch();
+    debug_log(debug_enabled, "adapter", adapter.key());
+    let mut ctx = match adapter.read_context(&raw) {
+        Ok(c) => c,
         Err(e) => {
-            debug_log(debug_enabled, "parse-error", &e.to_string());
-            println!("[glassline v{} parse-err]", env!("CARGO_PKG_VERSION"));
+            debug_log(debug_enabled, "adapter-read", &e);
+            println!(
+                "[glassline v{} {}-err] {e}",
+                env!("CARGO_PKG_VERSION"),
+                adapter.key()
+            );
             return ExitCode::SUCCESS;
         }
     };
+    // Cache the parsed StatusJson before augmentation — the transcript-
+    // scan branch below needs `payload.transcript_path` and moving it
+    // out of `ctx.data` would break that lookup.
+    let payload = ctx.data.clone();
 
     let loaded = match load(config_override.as_deref()) {
         Ok(l) => l,
@@ -195,25 +209,27 @@ fn run_render(args: &[String]) -> ExitCode {
         _ => loaded.settings,
     };
 
-    // Build the render context, then conditionally prefill transcript
-    // metrics based on which widgets on the visible lines actually need
-    // them (mirror of TS `hasSpeedItems` / `hasCompactionWidget` scan).
+    // Compute widget requirements — used to gate transcript-scan +
+    // usage-probe augmentation below. The adapter has already filled
+    // `ctx.data` + `ctx.now_ms`; main.rs adds the Claude-specific
+    // augmentation on top.
     let requirements = compute_requirements(&settings);
-    let mut ctx = RenderContext {
-        data: Some(payload.clone()),
-        now_ms: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0),
-        ..RenderContext::default()
-    };
 
     let transcript_bits = WidgetRequirements::TRANSCRIPT
         | WidgetRequirements::COMPACTION
         | WidgetRequirements::SESSION_CLOCK
         | WidgetRequirements::SPEED
         | WidgetRequirements::CACHE;
-    if let Some(transcript_path) = payload.transcript_path.as_deref()
+    // Transcript augmentation is Claude-specific — Codex/Grok will
+    // populate their own metrics inside their `read_context` in P4b.
+    // Guard by checking that the adapter is Claude AND the parsed
+    // payload actually has a transcript_path.
+    let transcript_path_opt: Option<&str> = if adapter.key() == "claude" {
+        payload.as_ref().and_then(|p| p.transcript_path.as_deref())
+    } else {
+        None
+    };
+    if let Some(transcript_path) = transcript_path_opt
         && (requirements.contains(WidgetRequirements::TRANSCRIPT)
             || requirements.contains(WidgetRequirements::COMPACTION)
             || requirements.contains(WidgetRequirements::SESSION_CLOCK)

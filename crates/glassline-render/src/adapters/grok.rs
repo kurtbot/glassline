@@ -190,6 +190,17 @@ impl CliAdapter for GrokAdapter {
             "weekly-reset-timer",
         ]
     }
+
+    fn read_context(
+        &self,
+        _stdin: &str,
+    ) -> Result<glassline_core::render_context::RenderContext, String> {
+        // P4b will parse ~/.grok/signals.json + updates.jsonl +
+        // active_sessions.json and build a RenderContext. Until then
+        // the adapter returns the stub message so users routed here
+        // via GROK_HOME see a concrete "not yet" instead of silence.
+        Err(crate::adapter::NOT_YET_IMPLEMENTED_MSG.to_string())
+    }
 }
 
 /// Resolve `$GROK_HOME` → `~/.grok`. Grok plugins are user-scoped in

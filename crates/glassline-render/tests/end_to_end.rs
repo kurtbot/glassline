@@ -84,9 +84,15 @@ fn malformed_json_prints_marker_and_succeeds() {
         .assert()
         .success();
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    // Marker text changed after the P3b adapter-dispatch refactor:
+    // pre-refactor emitted `[glassline v... parse-err]`, post-refactor
+    // emits `[glassline v... claude-err] parse StatusJSON from stdin: ...`
+    // (per-adapter slug so Codex/Grok errors are distinguishable). The
+    // durable contract is "some -err] marker + exit 0", not the specific
+    // string.
     assert!(
-        stdout.contains("parse-err"),
-        "expected parse-err marker, got {stdout:?}",
+        stdout.contains("err]") && stdout.contains("parse"),
+        "expected parse-related err marker, got {stdout:?}",
     );
 }
 
@@ -107,6 +113,53 @@ fn install_unknown_for_slug_exits_2_with_known_slugs_hint() {
     assert!(
         stderr.contains("claude"),
         "expected 'claude' listed as known slug in stderr, got: {stderr:?}"
+    );
+}
+
+#[test]
+fn codex_home_env_routes_to_codex_adapter_which_stubs_render() {
+    // With CODEX_HOME set, env_var_dispatch routes stdin through the
+    // Codex adapter. Its read_context currently returns the
+    // NOT_YET_IMPLEMENTED_MSG stub (P4b will replace with real
+    // rollout-file parsing). Assert we see the codex-err marker, not
+    // a claude-err (which would mean env_var_dispatch didn't route).
+    let assert = Command::cargo_bin("glassline")
+        .expect("built glassline binary")
+        .env(
+            "CODEX_HOME",
+            std::env::temp_dir().join("glassline-e2e-codex-dispatch"),
+        )
+        .env("GLASSLINE_CONFIG", "/no/such/glassline/config.json")
+        .write_stdin("{}")
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(
+        stdout.contains("codex-err]"),
+        "expected codex-err marker (adapter routed), got: {stdout:?}"
+    );
+    assert!(
+        stdout.contains("not yet shipped"),
+        "expected stub message, got: {stdout:?}"
+    );
+}
+
+#[test]
+fn grok_home_env_routes_to_grok_adapter_which_stubs_render() {
+    let assert = Command::cargo_bin("glassline")
+        .expect("built glassline binary")
+        .env(
+            "GROK_HOME",
+            std::env::temp_dir().join("glassline-e2e-grok-dispatch"),
+        )
+        .env("GLASSLINE_CONFIG", "/no/such/glassline/config.json")
+        .write_stdin("{}")
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).into_owned();
+    assert!(
+        stdout.contains("grok-err]"),
+        "expected grok-err marker (adapter routed), got: {stdout:?}"
     );
 }
 

@@ -25,6 +25,9 @@
 
 use phf::phf_map;
 
+use glassline_core::render_context::RenderContext;
+use glassline_core::status_json::StatusJson;
+
 use crate::install::{InstallError, InstallOpts, InstallReport, run_install, run_uninstall};
 
 /// The trait every coding-CLI adapter implements.
@@ -64,7 +67,29 @@ pub trait CliAdapter: Send + Sync {
     /// Empty slice = "every widget renders". `ClaudeAdapter` returns
     /// `&[]` because Claude Code drives the full canonical catalog.
     fn unsupported_widgets(&self) -> &'static [&'static str];
+
+    /// Parse the caller's stdin (Claude's `StatusJSON` payload; Codex's
+    /// forward-compat `statusLine` payload when that ships) OR read
+    /// state files (Codex rollout / Grok signals) into a base
+    /// [`RenderContext`]. The renderer's cross-CLI augmentation
+    /// (git detection, transcript scan when applicable, usage lookup
+    /// when applicable) runs on top of this.
+    ///
+    /// Every adapter owns its own input surface — the trait method is
+    /// the boundary. Return `Err(String)` for a human-readable error
+    /// the caller surfaces to the user's status line (visible marker
+    /// widget); do not panic.
+    ///
+    /// Codex and Grok's real read paths land in P4b — they currently
+    /// return `Err(NOT_YET_IMPLEMENTED_MSG)` so users routed through
+    /// them see a clear message rather than a silent blank.
+    fn read_context(&self, stdin: &str) -> Result<RenderContext, String>;
 }
+
+/// Human-readable stub message adapters return until their P4b render
+/// path lands. Surfaced in the render binary's error path so users
+/// see something concrete rather than a blank status line.
+pub const NOT_YET_IMPLEMENTED_MSG: &str = "adapter render path not yet shipped in this build";
 
 /// The `--for <slug>` registry. `phf::Map` keeps the lookup O(1) and
 /// the whole table statically allocated — one branch of the render
@@ -84,17 +109,20 @@ pub static REGISTRY: phf::Map<&'static str, &'static dyn CliAdapter> = phf_map! 
 pub const REGISTRY_ORDER: &[&str] = &["claude", "codex", "grok"];
 
 /// Choose an adapter based on the caller's environment. Called by
-/// the render binary when stdin arrives without an explicit `--for`
-/// hint — we route through the env var the surrounding CLI would
-/// have set.
+/// the render binary when stdin arrives — we route through the env
+/// var the surrounding CLI would have set.
 ///
-/// P1 always returns [`ClaudeAdapter`] because it's the only entry.
-/// P3 adds branches for `CODEX_HOME`; P4 adds `GROK_HOME`. The
-/// fallback is always Claude to preserve backcompat with anyone
-/// piping raw `StatusJSON` from a wrapper.
+/// Precedence: `CODEX_HOME` → `CodexAdapter`; `GROK_HOME` →
+/// `GrokAdapter`; else `ClaudeAdapter` (the fallback — piped stdin
+/// from Claude Code or a raw wrapper).
 #[must_use]
 pub fn env_var_dispatch() -> &'static dyn CliAdapter {
-    // P3/P4 will grow branches here — the fallback stays Claude.
+    if std::env::var_os("CODEX_HOME").is_some() {
+        return &crate::adapters::codex::CodexAdapter;
+    }
+    if std::env::var_os("GROK_HOME").is_some() {
+        return &crate::adapters::grok::GrokAdapter;
+    }
     &ClaudeAdapter
 }
 
@@ -123,6 +151,27 @@ impl CliAdapter for ClaudeAdapter {
 
     fn unsupported_widgets(&self) -> &'static [&'static str] {
         &[]
+    }
+
+    fn read_context(&self, stdin: &str) -> Result<RenderContext, String> {
+        // Claude Code pipes `StatusJSON` on stdin; parse it and wrap
+        // in a base RenderContext. `now_ms` is filled here (moved from
+        // main.rs) so every adapter's output has a consistent
+        // timestamp. main.rs augments with git / transcript-scan /
+        // usage-probe on top of this — those steps are Claude-specific
+        // today and stay in the render binary until Codex/Grok's
+        // equivalents land.
+        let payload: StatusJson =
+            serde_json::from_str(stdin).map_err(|e| format!("parse StatusJSON from stdin: {e}"))?;
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        Ok(RenderContext {
+            data: Some(payload),
+            now_ms,
+            ..RenderContext::default()
+        })
     }
 }
 

@@ -198,6 +198,18 @@ impl CliAdapter for CodexAdapter {
         // dispatched through this adapter.
         &["block-timer", "block-reset-timer", "session-usage"]
     }
+
+    fn read_context(
+        &self,
+        _stdin: &str,
+    ) -> Result<glassline_core::render_context::RenderContext, String> {
+        // P4b will parse $CODEX_HOME/sessions/*.jsonl rollout files
+        // and build a RenderContext from token_usage_update /
+        // thread_status_changed / git_summary_update events. In the
+        // meantime we surface the stub message so users routed here
+        // via CODEX_HOME see something concrete.
+        Err(crate::adapter::NOT_YET_IMPLEMENTED_MSG.to_string())
+    }
 }
 
 /// Resolve `$CODEX_HOME` → `$XDG_CONFIG_HOME/codex` → `~/.codex`.
