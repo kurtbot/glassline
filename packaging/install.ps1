@@ -11,11 +11,16 @@
 #
 # Env overrides:
 #   $env:GLASSLINE_INSTALL_DIR — where to drop the binary. Default: $env:LOCALAPPDATA\glassline.
+#
+# PATH: by default the installer appends $Dir to the User-scope PATH
+# (idempotent). Pass -NoPath to opt out; the script will print the
+# equivalent [Environment]::SetEnvironmentVariable(...) call instead.
 
 [CmdletBinding()]
 param(
     [string]$Version = 'latest',
-    [string]$Dir = $env:GLASSLINE_INSTALL_DIR
+    [string]$Dir = $env:GLASSLINE_INSTALL_DIR,
+    [switch]$NoPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -132,14 +137,30 @@ try {
     }
 
     $pathElements = $env:PATH -split ';'
-    if ($pathElements -notcontains $Dir) {
+    if ($pathElements -contains $Dir) {
+        Write-Host "PATH already contains $Dir — you're set."
+    } elseif ($NoPath) {
         Write-Host ''
-        Write-Host "NOTE: $Dir is not on your PATH."
-        Write-Host '  Add it via one of:'
+        Write-Host "NOTE: $Dir is not on your PATH (-NoPath given)."
+        Write-Host '  Add it later via:'
         Write-Host "    [Environment]::SetEnvironmentVariable('Path', `"`$env:Path;$Dir`", 'User')"
         Write-Host '  (then restart your shell)'
     } else {
-        Write-Host "PATH already contains $Dir — you're set."
+        # Persist to the User-scope PATH so the change survives a shell
+        # restart. Idempotent: only append if $Dir isn't already there.
+        $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+        $userPathElements = if ($userPath) { $userPath -split ';' } else { @() }
+        if ($userPathElements -contains $Dir) {
+            Write-Host "User PATH already contains $Dir — no change written."
+            Write-Host '  Restart your shell to pick it up in this session.'
+        } else {
+            $newUserPath = if ([string]::IsNullOrEmpty($userPath)) { $Dir } else { "$userPath;$Dir" }
+            [Environment]::SetEnvironmentVariable('Path', $newUserPath, 'User')
+            Write-Host ''
+            Write-Host "added $Dir to User PATH."
+            Write-Host '  Restart your shell (or open a new terminal) to pick it up.'
+            Write-Host '  Pass -NoPath to future installer runs to skip this.'
+        }
     }
 
     Write-Host ''
