@@ -148,27 +148,42 @@ jobs:
             -e "s|/download/v[0-9]\+\.[0-9]\+\.[0-9]\+/|/download/v${version}/|g" \
             Formula/glassline.rb
 
-          # Substitute SHA256 placeholders. If the formula was already
-          # updated on a previous release, replace whatever value is
-          # currently between the sha256 quotes for that target's block.
+          # Substitute the four per-arch sha256 values.
+          #
+          # Prior implementation used block regexes like
+          # `on_macos.*?on_intel.*?end` and re.sub with count=1 on the
+          # matched block. That silently miscompiled: the `on_intel`
+          # block regex's span STARTS at `on_macos do`, so it includes
+          # the earlier on_arm block. `count=1` then hits the arm sha
+          # (first in the span) and overwrites it with the intel value,
+          # while the actual on_intel `sha256 "PLACEHOLDER_*"` line
+          # never gets touched. Bug latent since v0.5.1 — first
+          # surfaced in v0.7.0 verification.
+          #
+          # New approach: anchor on the URL's arch fragment (which is
+          # globally unique in the file) and rewrite the sha256 that
+          # immediately follows it. No cross-block interference.
           python3 - <<PY
           import re, pathlib
           path = pathlib.Path("Formula/glassline.rb")
           text = path.read_text()
 
-          def swap(block_pattern, new_sha):
-              # Find the block, then within it replace the sha256 "..." line.
-              m = re.search(block_pattern, text, re.DOTALL)
-              if not m:
-                  raise SystemExit(f"couldn't locate block matching {block_pattern[:80]}...")
-              block = m.group(0)
-              new_block = re.sub(r'sha256 "[^"]*"', f'sha256 "{new_sha}"', block, count=1)
-              return text.replace(block, new_block, 1)
+          def swap_by_url_arch(arch_fragment, new_sha):
+              # Match: url "...<arch_fragment>..." + newline+ws + sha256 "OLD"
+              # Rewrite only the sha256 that pairs with the target URL.
+              pattern = re.compile(
+                  r'(url "[^"]*' + re.escape(arch_fragment) + r'[^"]*"\s+sha256 ")[^"]*(")',
+                  re.DOTALL,
+              )
+              new_text, n = pattern.subn(rf'\g<1>{new_sha}\g<2>', text, count=1)
+              if n == 0:
+                  raise SystemExit(f"couldn't find sha256 slot for {arch_fragment}")
+              return new_text
 
-          text = swap(r'on_macos.*?on_arm.*?end', "${sha_mac_arm}")
-          text = swap(r'on_macos.*?on_intel.*?end', "${sha_mac_x64}")
-          text = swap(r'on_linux.*?on_arm.*?end', "${sha_lin_arm}")
-          text = swap(r'on_linux.*?on_intel.*?end', "${sha_lin_x64}")
+          text = swap_by_url_arch("aarch64-apple-darwin",         "${sha_mac_arm}")
+          text = swap_by_url_arch("x86_64-apple-darwin",          "${sha_mac_x64}")
+          text = swap_by_url_arch("aarch64-unknown-linux-gnu",    "${sha_lin_arm}")
+          text = swap_by_url_arch("x86_64-unknown-linux-gnu",     "${sha_lin_x64}")
 
           path.write_text(text)
           PY
