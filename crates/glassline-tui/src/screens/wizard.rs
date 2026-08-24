@@ -6,14 +6,14 @@
 //!    dev / power-user). Live preview updates as you nav.
 //! 3. **Color level** — Basic16 / Ansi256 / Truecolor, seeded by the
 //!    `COLORTERM` / `TERM` env vars.
-//! 4. **Install prompt** — offer to wire glassline into
-//!    `~/.claude/settings.json` right now.
+//! 4. **CLI picker** — detects which coding CLIs are on the machine
+//!    (Claude Code, Codex, Grok…) and lets the user multi-select
+//!    which to wire glassline into. Single-detected-CLI machines
+//!    collapse to the current single-question layout.
 //!
 //! Each step `Replace`s itself with the next so `Esc` cleanly bails
 //! the whole wizard without a back-stack. On the last step, the
 //! wizard pops out to the `MainMenu` push that sits underneath it.
-
-use std::process::Command;
 
 use ratatui::{
     crossterm::event::{Event, KeyCode},
@@ -25,12 +25,15 @@ use ratatui::{
 
 use glassline_core::{
     color::ColorLevel,
-    settings::{FlexMode, Settings, WidgetSpec},
+    settings::Settings,
+    templates::{
+        dev as template_dev_impl, minimal as template_minimal_impl,
+        power_user as template_power_user_impl,
+    },
 };
 use glassline_tui_dsl::{Action, Panel, Preview, Screen, Ui};
 
 use crate::preview_ctx::canned_context;
-use crate::screens::info_modal::InfoModal;
 use crate::screens::main_menu::preview_height;
 
 /// Top-level entry — call from `main` when `LoadOutcome::FirstRun`
@@ -197,81 +200,19 @@ impl Screen for TemplatePickScreen {
     }
 }
 
+// Template functions live in `glassline_core::templates` so `glassline
+// install` (in the render binary) can seed the same layouts the wizard
+// offers. Re-exported below for existing callers.
 pub fn template_minimal() -> Settings {
-    Settings {
-        lines: vec![vec![
-            WidgetSpec::new("m1", "current-working-dir").with_color("blue"),
-            WidgetSpec::new("m2", "separator"),
-            WidgetSpec::new("m3", "git-branch").with_color("magenta"),
-            WidgetSpec::new("m4", "separator"),
-            WidgetSpec::new("m5", "context-percentage").with_color("yellow"),
-        ]],
-        ..Settings::in_memory_defaults()
-    }
+    template_minimal_impl()
 }
 
 pub fn template_dev() -> Settings {
-    Settings {
-        lines: vec![
-            vec![
-                WidgetSpec::new("d1", "model").with_color("cyan"),
-                WidgetSpec::new("d2", "separator"),
-                WidgetSpec::new("d3", "git-branch").with_color("magenta"),
-                WidgetSpec::new("d4", "separator"),
-                WidgetSpec::new("d5", "git-changes").with_color("brightGreen"),
-            ],
-            vec![
-                WidgetSpec::new("d6", "context-percentage").with_color("yellow"),
-                WidgetSpec::new("d7", "separator"),
-                WidgetSpec::new("d8", "tokens-total").with_color("brightYellow"),
-                WidgetSpec::new("d9", "separator"),
-                WidgetSpec::new("d10", "total-speed").with_color("cyan"),
-                WidgetSpec::new("d11", "separator"),
-                WidgetSpec::new("d12", "compaction-counter").with_color("brightBlack"),
-            ],
-        ],
-        ..Settings::in_memory_defaults()
-    }
+    template_dev_impl()
 }
 
 pub fn template_power_user() -> Settings {
-    Settings {
-        lines: vec![
-            vec![
-                WidgetSpec::new("p1", "model").with_color("cyan"),
-                WidgetSpec::new("p2", "separator"),
-                WidgetSpec::new("p3", "context-bar").with_color("green"),
-                WidgetSpec::new("p4", "separator"),
-                WidgetSpec::new("p5", "git-branch").with_color("magenta"),
-                WidgetSpec::new("p6", "separator"),
-                WidgetSpec::new("p7", "git-changes").with_color("brightGreen"),
-                WidgetSpec::new("p8", "separator"),
-                WidgetSpec::new("p9", "current-working-dir").with_color("blue"),
-            ],
-            vec![
-                WidgetSpec::new("p10", "context-percentage").with_color("yellow"),
-                WidgetSpec::new("p11", "separator"),
-                WidgetSpec::new("p12", "session-clock").with_color("yellow"),
-                WidgetSpec::new("p13", "separator"),
-                WidgetSpec::new("p14", "weekly-reset-timer").with_color("brightBlue"),
-                WidgetSpec::new("p15", "separator"),
-                WidgetSpec::new("p16", "input-speed").with_color("cyan"),
-                WidgetSpec::new("p17", "separator"),
-                WidgetSpec::new("p18", "output-speed").with_color("cyan"),
-            ],
-            vec![
-                WidgetSpec::new("p19", "session-usage").with_color("brightGreen"),
-                WidgetSpec::new("p20", "separator"),
-                WidgetSpec::new("p21", "weekly-usage").with_color("brightCyan"),
-                WidgetSpec::new("p22", "separator"),
-                WidgetSpec::new("p23", "thinking-effort").with_color("magenta"),
-                WidgetSpec::new("p24", "separator"),
-                WidgetSpec::new("p25", "session-cost").with_color("brightYellow"),
-            ],
-        ],
-        flex_mode: FlexMode::FullMinus40,
-        ..Settings::in_memory_defaults()
-    }
+    template_power_user_impl()
 }
 
 // ---------------------------------------------------------------------------
@@ -388,7 +329,7 @@ impl Screen for ColorLevelScreen {
                 let level = COLOR_LEVELS[self.focus].1;
                 Action::Sequence(vec![
                     Action::MutateSettings(Box::new(move |s| s.color_level = level)),
-                    Action::Replace(Box::new(InstallPromptScreen)),
+                    Action::Replace(Box::new(crate::screens::CliPickerScreen::new())),
                 ])
             }
             _ => Action::None,
@@ -412,92 +353,7 @@ impl From<()> for ColorLevelScreen {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Step 4 — Install prompt
-// ---------------------------------------------------------------------------
-
-struct InstallPromptScreen;
-
-impl Screen for InstallPromptScreen {
-    fn title(&self) -> &str {
-        "Install into Claude Code"
-    }
-    fn keybindings(&self) -> &[(&'static str, &'static str)] {
-        &[("y", "Install now"), ("n", "Skip"), ("Esc", "Skip")]
-    }
-    fn render(&mut self, ui: &mut Ui) {
-        let area = ui.area();
-        Panel::new("Install").render(area, ui.frame, |inner, frame| {
-            let lines = vec![
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  Wire glassline into your Claude Code settings?",
-                    Style::default().add_modifier(Modifier::BOLD),
-                )),
-                Line::from(""),
-                Line::from("  Runs `glassline install --user` which edits"),
-                Line::from("  ~/.claude/settings.json to set the statusLine command."),
-                Line::from(""),
-                Line::from(Span::styled(
-                    "  Press y to install, n to skip. You can always run",
-                    Style::default().add_modifier(Modifier::DIM),
-                )),
-                Line::from(Span::styled(
-                    "  `glassline install --user` later from a shell.",
-                    Style::default().add_modifier(Modifier::DIM),
-                )),
-            ];
-            frame.render_widget(Paragraph::new(lines), inner);
-        });
-    }
-    fn on_event(&mut self, ev: Event) -> Action {
-        let Event::Key(k) = ev else {
-            return Action::None;
-        };
-        match k.code {
-            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => Action::Pop,
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
-                let (title, body) = match run_install() {
-                    Ok(msg) => ("Install succeeded", msg),
-                    Err(msg) => ("Install failed", msg),
-                };
-                Action::Sequence(vec![
-                    Action::Pop,
-                    Action::Push(Box::new(InfoModal::new(title, body))),
-                ])
-            }
-            _ => Action::None,
-        }
-    }
-}
-
-fn run_install() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("resolve current_exe: {e}"))?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| "no parent dir for current_exe".to_string())?;
-    let render_bin = dir.join(if cfg!(windows) {
-        "glassline.exe"
-    } else {
-        "glassline"
-    });
-    if !render_bin.exists() {
-        return Err(format!(
-            "Can't find the render binary next to this editor:\n{}",
-            render_bin.display()
-        ));
-    }
-    let output = Command::new(&render_bin)
-        .args(["install", "--user"])
-        .output()
-        .map_err(|e| format!("spawn `{}`: {e}", render_bin.display()))?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("`glassline install --user` failed:\n{stderr}"));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(format!(
-        "Ran `glassline install --user` — Claude Code will use glassline on next launch.\n\n{}",
-        stdout.trim(),
-    ))
-}
+// Step 4 (CLI picker) lives in `screens/cli_picker.rs` — replaced the
+// old single-question InstallPromptScreen so the wizard can detect
+// multiple coding CLIs and let the user pick which to wire glassline
+// into.

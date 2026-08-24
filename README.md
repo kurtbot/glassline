@@ -20,6 +20,16 @@ Rust port of [ccstatusline](https://github.com/sirmalloc/ccstatusline) — a cus
 
 **Interactive editor:** `glassline` typed in a bare terminal opens `glassline-tui` — a keyboard-driven layout editor with live-preview rendering through the real pipeline, first-run wizard (template pick → color level → install), and diagnostics. Piped stdin (Claude Code) renders normally.
 
+**Multi-CLI support (v0.7.0):** one binary, three coding CLIs. Adapter dispatch chooses the right integration by env-var or `--for <slug>` argument:
+
+| CLI | Install target | Data source |
+|---|---|---|
+| **Claude Code** | `~/.claude/settings.json` `statusLine` hook | stdin `StatusJSON` (piped from Claude Code) |
+| **Codex** | `~/.codex/plugins/glassline/{plugin.json, hooks.json}` | `$CODEX_HOME/sessions/*.jsonl` rollout, tolerant JSONL parser. Also accepts stdin per [openai/codex#16921](https://github.com/openai/codex/issues/16921) when Codex ships it. |
+| **Grok** | `~/.grok/plugins/glassline/plugin.json` + `grok plugin enable glassline` | `~/.grok/signals.json` (mandatory) + `updates.jsonl` (optional, for active tool) |
+
+Widget catalog is shared. Widgets that key on Anthropic-specific concepts (`block-timer`, `session-usage`, `weekly-*`) render as `(unavailable)` when dispatched through the Codex or Grok adapter — the wizard's install summary lists the caveats up-front.
+
 **Hardening:** cross-process lock file, macOS Keychain fallback for OAuth token, `HTTPS_PROXY` / `NO_PROXY` resolution, per-outcome cache TTL, `Retry-After` honoring on 429.
 
 ## Attribution

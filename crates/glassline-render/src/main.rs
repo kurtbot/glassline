@@ -30,17 +30,17 @@ use std::{
 
 use glassline_core::{
     color::Color,
-    render_context::{BlockMetrics, RenderContext},
+    render_context::BlockMetrics,
     settings::{Settings, WidgetSpec},
     span::StyledSpan,
-    status_json::StatusJson,
     widget::WidgetRequirements,
 };
 use glassline_render::{
+    adapter::{REGISTRY as ADAPTER_REGISTRY, REGISTRY_ORDER as ADAPTER_ORDER, env_var_dispatch},
     ansi::spans_to_string,
     config::{LoadOutcome, default_settings_path, load},
     import::{self, ImportOpts},
-    install::{InstallOpts, Scope, render_report, run_install, run_uninstall},
+    install::{InstallOpts, Scope, render_report},
     pipeline::{compute_requirements, render_to_string},
     render_cache,
     stdin_reader::slurp_stdin,
@@ -163,14 +163,29 @@ fn run_render(args: &[String]) -> ExitCode {
     }
     render_cache::record_stat(false, now_ms);
 
-    let payload: StatusJson = match serde_json::from_str(&raw) {
-        Ok(p) => p,
+    // Adapter dispatch. env_var_dispatch inspects CODEX_HOME /
+    // GROK_HOME and picks the right adapter; falls back to Claude for
+    // piped-stdin usage. Each adapter owns its own input-parsing
+    // surface — Claude parses StatusJSON, Codex/Grok (once P4b lands)
+    // read their state files.
+    let adapter = env_var_dispatch();
+    debug_log(debug_enabled, "adapter", adapter.key());
+    let mut ctx = match adapter.read_context(&raw) {
+        Ok(c) => c,
         Err(e) => {
-            debug_log(debug_enabled, "parse-error", &e.to_string());
-            println!("[glassline v{} parse-err]", env!("CARGO_PKG_VERSION"));
+            debug_log(debug_enabled, "adapter-read", &e);
+            println!(
+                "[glassline v{} {}-err] {e}",
+                env!("CARGO_PKG_VERSION"),
+                adapter.key()
+            );
             return ExitCode::SUCCESS;
         }
     };
+    // Cache the parsed StatusJson before augmentation — the transcript-
+    // scan branch below needs `payload.transcript_path` and moving it
+    // out of `ctx.data` would break that lookup.
+    let payload = ctx.data.clone();
 
     let loaded = match load(config_override.as_deref()) {
         Ok(l) => l,
@@ -194,25 +209,27 @@ fn run_render(args: &[String]) -> ExitCode {
         _ => loaded.settings,
     };
 
-    // Build the render context, then conditionally prefill transcript
-    // metrics based on which widgets on the visible lines actually need
-    // them (mirror of TS `hasSpeedItems` / `hasCompactionWidget` scan).
+    // Compute widget requirements — used to gate transcript-scan +
+    // usage-probe augmentation below. The adapter has already filled
+    // `ctx.data` + `ctx.now_ms`; main.rs adds the Claude-specific
+    // augmentation on top.
     let requirements = compute_requirements(&settings);
-    let mut ctx = RenderContext {
-        data: Some(payload.clone()),
-        now_ms: std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0),
-        ..RenderContext::default()
-    };
 
     let transcript_bits = WidgetRequirements::TRANSCRIPT
         | WidgetRequirements::COMPACTION
         | WidgetRequirements::SESSION_CLOCK
         | WidgetRequirements::SPEED
         | WidgetRequirements::CACHE;
-    if let Some(transcript_path) = payload.transcript_path.as_deref()
+    // Transcript augmentation is Claude-specific — Codex/Grok will
+    // populate their own metrics inside their `read_context` in P4b.
+    // Guard by checking that the adapter is Claude AND the parsed
+    // payload actually has a transcript_path.
+    let transcript_path_opt: Option<&str> = if adapter.key() == "claude" {
+        payload.as_ref().and_then(|p| p.transcript_path.as_deref())
+    } else {
+        None
+    };
+    if let Some(transcript_path) = transcript_path_opt
         && (requirements.contains(WidgetRequirements::TRANSCRIPT)
             || requirements.contains(WidgetRequirements::COMPACTION)
             || requirements.contains(WidgetRequirements::SESSION_CLOCK)
@@ -335,15 +352,30 @@ fn warning_banner(reason: &str) -> StyledSpan {
 }
 
 fn run_install_cmd(args: &[String]) -> ExitCode {
-    let opts = match parse_install_args(args) {
-        Ok(o) => o,
+    // Short-circuit: `install --for <slug> --print-caveats` prints
+    // the adapter's `unsupported_widgets` list one-per-line and
+    // exits, bypassing the actual install. Consumed by the wizard's
+    // batched install path to decorate its summary modal.
+    if args.iter().any(|a| a == "--print-caveats") {
+        return run_print_caveats_cmd(args);
+    }
+    let (slug, opts) = match parse_install_args(args) {
+        Ok(pair) => pair,
         Err(e) => {
             let _ = writeln!(std::io::stderr(), "glassline install: {e}");
             print_install_help();
             return ExitCode::from(2);
         }
     };
-    match run_install(&opts) {
+    let Some(adapter) = ADAPTER_REGISTRY.get(slug.as_str()) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "glassline install: unknown CLI `{slug}`.\nKnown: {known}. See `glassline install --help`.",
+            known = ADAPTER_ORDER.join(", "),
+        );
+        return ExitCode::from(2);
+    };
+    match adapter.install(&opts) {
         Ok(report) => {
             print!("{}", render_report(&report, "install"));
             ExitCode::SUCCESS
@@ -355,16 +387,50 @@ fn run_install_cmd(args: &[String]) -> ExitCode {
     }
 }
 
+fn run_print_caveats_cmd(args: &[String]) -> ExitCode {
+    // Minimal parser: only care about `--for <slug>`; ignore any other
+    // flag. Default slug is claude for backcompat.
+    let mut slug: &str = "claude";
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--for"
+            && let Some(v) = it.next()
+        {
+            slug = v.as_str();
+        }
+    }
+    let Some(adapter) = ADAPTER_REGISTRY.get(slug) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "glassline install --print-caveats: unknown CLI `{slug}`. Known: {known}.",
+            known = ADAPTER_ORDER.join(", "),
+        );
+        return ExitCode::from(2);
+    };
+    for widget_kind in adapter.unsupported_widgets() {
+        println!("{widget_kind}");
+    }
+    ExitCode::SUCCESS
+}
+
 fn run_uninstall_cmd(args: &[String]) -> ExitCode {
-    let opts = match parse_install_args(args) {
-        Ok(o) => o,
+    let (slug, opts) = match parse_install_args(args) {
+        Ok(pair) => pair,
         Err(e) => {
             let _ = writeln!(std::io::stderr(), "glassline uninstall: {e}");
             print_install_help();
             return ExitCode::from(2);
         }
     };
-    match run_uninstall(&opts) {
+    let Some(adapter) = ADAPTER_REGISTRY.get(slug.as_str()) else {
+        let _ = writeln!(
+            std::io::stderr(),
+            "glassline uninstall: unknown CLI `{slug}`.\nKnown: {known}. See `glassline install --help`.",
+            known = ADAPTER_ORDER.join(", "),
+        );
+        return ExitCode::from(2);
+    };
+    match adapter.uninstall(&opts) {
         Ok(report) => {
             print!("{}", render_report(&report, "uninstall"));
             ExitCode::SUCCESS
@@ -431,9 +497,18 @@ fn print_import_help() {
     );
 }
 
-fn parse_install_args(args: &[String]) -> Result<InstallOpts, String> {
+/// Parse `install` / `uninstall` argv into an adapter slug + `InstallOpts`.
+///
+/// The slug (from `--for <slug>`) defaults to `"claude"` for backcompat
+/// so `glassline install` (no flag) behaves identically to
+/// `glassline install --for claude`. Unknown slugs are validated at
+/// dispatch time (against `adapter::REGISTRY`), not here — this parser
+/// only enforces argv shape.
+fn parse_install_args(args: &[String]) -> Result<(String, InstallOpts), String> {
     let mut opts = InstallOpts::default();
-    for arg in args {
+    let mut slug = String::from("claude");
+    let mut it = args.iter();
+    while let Some(arg) = it.next() {
         match arg.as_str() {
             "--project" => opts.scope = Scope::Project,
             "--user" => opts.scope = Scope::User,
@@ -441,10 +516,16 @@ fn parse_install_args(args: &[String]) -> Result<InstallOpts, String> {
             "--use-path" => opts.absolute_path = false,
             "--dry-run" => opts.dry_run = true,
             "--force" | "-f" => opts.force = true,
+            "--for" => {
+                slug = it
+                    .next()
+                    .ok_or_else(|| "--for requires a CLI slug".to_string())?
+                    .clone();
+            }
             other => return Err(format!("unknown argument: {other}")),
         }
     }
-    Ok(opts)
+    Ok((slug, opts))
 }
 
 fn print_help() {
@@ -456,8 +537,8 @@ USAGE:
   <StatusJSON on stdin> | glassline [--config <path>]  Render a status line.
   glassline                                            Bare TTY invocation opens the editor
                                                        (`glassline-tui`) if it's installed.
-  glassline install [OPTS]                             Wire into Claude Code.
-  glassline uninstall [OPTS]                           Remove the wiring.
+  glassline install [--for <slug>] [OPTS]              Wire into a coding CLI (default: claude).
+  glassline uninstall [--for <slug>] [OPTS]            Remove the wiring.
   glassline import [OPTS]                              Migrate from ccstatusline.
   glassline demo <MODE> [OPTS]                         Preview animations live.
   glassline --version                                  Print version.
@@ -490,24 +571,27 @@ IMPORT OPTS:
 }
 
 fn print_install_help() {
+    let known = ADAPTER_ORDER.join(" | ");
     let _ = writeln!(
         std::io::stderr(),
-        "usage: glassline install|uninstall [--user|--project] [--absolute-path] [--dry-run] [--force]"
+        "usage: glassline install|uninstall [--for <{known}>] [--user|--project] [--absolute-path] [--dry-run] [--force]\n  --for <slug>   Target CLI to wire glassline into (default: claude). Known: {known}."
     );
 }
 
-/// A single-widget "hello, glassline" placeholder for the very first launch
-/// (no settings.json on disk yet). Once T-1.7 lands real MVP widgets this
-/// branch dies; users will see the TS-parity default line instead.
+/// One-line placeholder shown the very first time Claude Code invokes
+/// glassline before any config exists. Tells the user how to configure —
+/// which is to run `glassline` in a terminal (TTY shim → glassline-tui
+/// wizard), NOT `glassline install` (that only wires the statusLine
+/// hook; it doesn't create a config file).
 fn first_run_slice_settings() -> Settings {
     let mut spec = WidgetSpec::new("1", "custom-text");
     spec.custom_text = Some(format!(
-        "[glassline v{}] {{session_id}} — no config, run `glassline install`",
+        "[glassline v{}] no config yet — run `glassline` in a terminal to configure",
         env!("CARGO_PKG_VERSION")
     ));
     spec.color = Some("cyan".into());
     Settings {
-        lines: vec![vec![spec], vec![], vec![]],
+        lines: vec![vec![spec]],
         ..Settings::in_memory_defaults()
     }
 }
@@ -539,4 +623,50 @@ fn debug_log_path() -> Option<PathBuf> {
             .join("glassline")
             .join("debug.log"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_install_args_defaults_to_claude() {
+        let (slug, opts) = parse_install_args(&args(&[])).unwrap();
+        assert_eq!(slug, "claude");
+        assert_eq!(opts.scope, Scope::User);
+    }
+
+    #[test]
+    fn parse_install_args_captures_for_slug() {
+        let (slug, _) = parse_install_args(&args(&["--for", "codex"])).unwrap();
+        assert_eq!(slug, "codex");
+    }
+
+    #[test]
+    fn parse_install_args_for_without_value_errors() {
+        assert!(parse_install_args(&args(&["--for"])).is_err());
+    }
+
+    #[test]
+    fn parse_install_args_for_and_scope_compose() {
+        let (slug, opts) = parse_install_args(&args(&["--for", "codex", "--project"])).unwrap();
+        assert_eq!(slug, "codex");
+        assert_eq!(opts.scope, Scope::Project);
+    }
+
+    #[test]
+    fn parse_install_args_for_dry_run_compose() {
+        let (slug, opts) = parse_install_args(&args(&["--for", "claude", "--dry-run"])).unwrap();
+        assert_eq!(slug, "claude");
+        assert!(opts.dry_run);
+    }
+
+    #[test]
+    fn parse_install_args_unknown_flag_errors() {
+        assert!(parse_install_args(&args(&["--nope"])).is_err());
+    }
 }

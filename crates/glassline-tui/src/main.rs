@@ -6,6 +6,7 @@
 //! status 0 on success, 1 on failure. Scripted-upgrade friendly.
 
 pub mod cli;
+pub mod cli_detect;
 pub mod meta;
 pub mod preview_ctx;
 pub mod screens;
