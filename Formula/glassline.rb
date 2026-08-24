@@ -7,22 +7,22 @@ class Glassline < Formula
   on_macos do
     on_arm do
       url "https://github.com/kurtbot/glassline/releases/download/v0.7.0/glassline-aarch64-apple-darwin.tar.gz"
-      sha256 "658018db1ed505c639b5901308dc7af375f327813e2186fd23d6668f7c121389"
+      sha256 "54bff9e332faf6c1f18e2a5e8426d2800159aa3341a4a3ff73ab15d32ac84939"
     end
     on_intel do
       url "https://github.com/kurtbot/glassline/releases/download/v0.7.0/glassline-x86_64-apple-darwin.tar.gz"
-      sha256 "PLACEHOLDER_MAC_X64"
+      sha256 "658018db1ed505c639b5901308dc7af375f327813e2186fd23d6668f7c121389"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/kurtbot/glassline/releases/download/v0.7.0/glassline-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "00017c399ae4f45a7d6f8736da914eca2f87d0f7ac6c76b97e56cd1b20a83975"
+      sha256 "9a5dfa2ff9eb376e481aec6c927720dbbf2ca8dc6f205756f74bbb87cd41a3f0"
     end
     on_intel do
       url "https://github.com/kurtbot/glassline/releases/download/v0.7.0/glassline-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "PLACEHOLDER_LINUX_X64"
+      sha256 "00017c399ae4f45a7d6f8736da914eca2f87d0f7ac6c76b97e56cd1b20a83975"
     end
   end
 
